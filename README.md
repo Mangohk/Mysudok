@@ -4,6 +4,9 @@ A small static Sudoku game. Pick **入門** or **進階**, then fill a generated
 
 Difficulty is the hardest solving technique a human-style solver has to use, after the puzzle is checked for a unique solution. It is not the number of clues.
 
+## Page
+https://mangohk.github.io/Mysudok/
+
 ## Run locally
 
 ```bash
