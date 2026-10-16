@@ -4,8 +4,26 @@ A small static Sudoku game. Pick **入門** or **進階**, then fill a generated
 
 Difficulty is the hardest solving technique a human-style solver has to use, after the puzzle is checked for a unique solution. It is not the number of clues.
 
-## Page
-https://mangohk.github.io/Mysudok/
+## GitHub Pages
+
+Live site: [https://mangohk.github.io/Mysudok/](https://mangohk.github.io/Mysudok/)
+
+Pages must use **GitHub Actions** as the source. **Deploy from a branch** publishes this repository root, including the unbuilt `index.html` that loads `/src/main.ts`. Browsers cannot run that file.
+
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs on every push to `main`. It runs `npm ci`, `npm test`, and `npm run build`, then uploads `dist/` with `actions/upload-pages-artifact` and publishes it with `actions/deploy-pages`.
+
+`vite.config.ts` sets `base` to `/Mysudok/`. The built page requests scripts and styles from `/Mysudok/assets/…`, which matches this project site. The workflow fails the build if `dist/index.html` does not contain that prefix, or if it still points at `/src/main.ts`.
+
+### One-time setting
+
+This has to be selected once. The workflow file cannot switch it.
+
+1. Merge the workflow to `main`.
+2. Open **Settings → Pages**.
+3. Under **Build and deployment**, set **Source** to **GitHub Actions**. Leave **Deploy from a branch** unselected. That branch option is what is serving the raw TypeScript page today (`main` / `/`).
+4. If the deploy job did not succeed (it fails while Source is still a branch), open the **Actions** tab, choose **Deploy to GitHub Pages**, and run **Run workflow** on `main`.
+
+After that, the site serves the built app. Later pushes to `main` publish a new `dist/` on their own.
 
 ## Run locally
 
