@@ -5,11 +5,13 @@ import {
   conflictMask,
   createBoard,
   digitCount,
+  emptyCellCount,
   isDigitDone,
   remainingCount,
   restartBoard,
   tapCell,
   undoCell,
+  wrongFillIndexes,
 } from "../src/board-input.ts";
 
 const SOLUTION = [
@@ -120,6 +122,96 @@ test("a finished digit cannot be armed", () => {
   const board = createBoard(SOLUTION, SOLUTION);
   armDigit(board, 6);
   assert.equal(board.selectedDigit, null);
+});
+
+test("filling clears that digit from pencil notes in the row, column, and box", () => {
+  const board = createBoard(SOLUTION.map(() => 0), SOLUTION);
+  const cell = 0;
+  const rowPeer = 1;
+  const colPeer = 9;
+  const boxPeer = 10;
+  const nonPeer = 80;
+  board.notes[cell] = (1 << 5) | (1 << 7);
+  board.notes[rowPeer] = (1 << 5) | (1 << 3);
+  board.notes[colPeer] = 1 << 5;
+  board.notes[boxPeer] = (1 << 5) | (1 << 2);
+  board.notes[nonPeer] = 1 << 5;
+
+  armDigit(board, 5);
+  tapCell(board, cell);
+
+  assert.equal(board.values[cell], 5);
+  assert.equal(board.notes[cell], 0);
+  assert.equal(board.notes[rowPeer], 1 << 3);
+  assert.equal(board.notes[colPeer], 0);
+  assert.equal(board.notes[boxPeer], 1 << 2);
+  assert.equal(board.notes[nonPeer], 1 << 5);
+  assert.equal(board.undo.length, 1);
+
+  undoCell(board);
+  assert.equal(board.values[cell], 0);
+  assert.equal(board.notes[cell], (1 << 5) | (1 << 7));
+  assert.equal(board.notes[rowPeer], (1 << 5) | (1 << 3));
+  assert.equal(board.notes[colPeer], 1 << 5);
+  assert.equal(board.notes[boxPeer], (1 << 5) | (1 << 2));
+  assert.equal(board.notes[nonPeer], 1 << 5);
+});
+
+test("pencil marks do not clear peer notes", () => {
+  const board = createBoard(SOLUTION.map(() => 0), SOLUTION);
+  board.notes[1] = 1 << 4;
+  board.pencilMode = true;
+  armDigit(board, 4);
+  tapCell(board, 0);
+  assert.equal(board.values[0], 0);
+  assert.equal(board.notes[0] & (1 << 4), 1 << 4);
+  assert.equal(board.notes[1], 1 << 4);
+});
+
+test("erasing a fill does not clear peer notes", () => {
+  const board = createBoard(SOLUTION.map(() => 0), SOLUTION);
+  board.values[0] = 4;
+  board.notes[1] = 1 << 4;
+  armDigit(board, 4);
+  tapCell(board, 0);
+  assert.equal(board.values[0], 0);
+  assert.equal(board.notes[1], 1 << 4);
+});
+
+test("peer note clearing skips givens", () => {
+  const clues = SOLUTION.map((value, index) => (index === 1 ? value : 0));
+  const board = createBoard(clues, SOLUTION);
+  board.notes[1] = 1 << 6;
+  armDigit(board, 6);
+  tapCell(board, 0);
+  assert.equal(board.values[0], 6);
+  assert.equal(board.notes[1], 1 << 6);
+  assert.equal(board.values[1], clues[1]);
+});
+
+test("empty cell count is the unfilled non-givens", () => {
+  const clues = SOLUTION.map((value, index) => (index < 10 ? value : 0));
+  const board = createBoard(clues, SOLUTION);
+  assert.equal(emptyCellCount(board), 71);
+  armDigit(board, SOLUTION[10]);
+  tapCell(board, 10);
+  assert.equal(emptyCellCount(board), 70);
+});
+
+test("wrong fills are player cells that disagree with the solution", () => {
+  const clues = SOLUTION.map((value, index) => (index < 10 ? value : 0));
+  const board = createBoard(clues, SOLUTION);
+  board.values[0] = board.values[0] === 1 ? 2 : 1;
+  const wrongDigit = SOLUTION[20] === 9 ? 8 : 9;
+  armDigit(board, wrongDigit);
+  tapCell(board, 20);
+  board.selectedDigit = null;
+  armDigit(board, SOLUTION[21]);
+  tapCell(board, 21);
+  assert.equal(board.values[21], SOLUTION[21]);
+  const wrong = wrongFillIndexes(board);
+  assert.deepEqual(wrong, [20]);
+  assert.equal(wrong.includes(0), false);
 });
 
 test("重開 clears fills and the undo stack but keeps givens", () => {

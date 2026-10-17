@@ -1,9 +1,16 @@
 /** Digit-first board edits. Givens are never written and never undo entries. */
 
-export interface CellUndo {
+import { peersOf } from "./engine/techniques";
+
+export interface CellSnapshot {
   index: number;
   value: number;
   notes: number;
+}
+
+/** One undo restores every cell touched by a single edit, including peer note clears. */
+export interface UndoStep {
+  cells: CellSnapshot[];
 }
 
 export interface BoardInput {
@@ -16,7 +23,7 @@ export interface BoardInput {
   selectedDigit: number | null;
   selectedCell: number | null;
   pencilMode: boolean;
-  undo: CellUndo[];
+  undo: UndoStep[];
 }
 
 export function createBoard(clues: readonly number[], solution: readonly number[]): BoardInput {
@@ -109,14 +116,34 @@ export function armDigit(board: BoardInput, digit: number): void {
   board.selectedCell = null;
 }
 
+function snapshot(board: BoardInput, index: number): CellSnapshot {
+  return { index, value: board.values[index] ?? 0, notes: board.notes[index] ?? 0 };
+}
+
+function pushUndo(board: BoardInput, cells: CellSnapshot[]): void {
+  if (cells.length === 0) return;
+  board.undo.push({ cells });
+  if (board.undo.length > 200) board.undo.shift();
+}
+
 function pushCell(board: BoardInput, index: number): void {
   if (board.givens[index]) return;
-  board.undo.push({
-    index,
-    value: board.values[index],
-    notes: board.notes[index],
-  });
-  if (board.undo.length > 200) board.undo.shift();
+  pushUndo(board, [snapshot(board, index)]);
+}
+
+/** Drop `digit` from pencil notes in the same row, column, and box. */
+function clearPeerNotes(board: BoardInput, index: number, digit: number): void {
+  const bit = 1 << digit;
+  const peers: CellSnapshot[] = [];
+  for (const peer of peersOf(index)) {
+    if (board.givens[peer] || board.values[peer] !== 0) continue;
+    if ((board.notes[peer] & bit) === 0) continue;
+    peers.push(snapshot(board, peer));
+  }
+  pushUndo(board, [snapshot(board, index), ...peers]);
+  board.values[index] = digit;
+  board.notes[index] = 0;
+  for (const peer of peers) board.notes[peer.index] &= ~bit;
 }
 
 /** Tap a cell while a digit may be armed. Givens are ignored. */
@@ -142,19 +169,37 @@ export function tapCell(board: BoardInput, index: number): void {
     return;
   }
 
-  pushCell(board, index);
-  board.values[index] = digit;
-  board.notes[index] = 0;
+  clearPeerNotes(board, index, digit);
   board.selectedCell = null;
   if (isDigitDone(board, digit)) board.selectedDigit = null;
 }
 
+export function emptyCellCount(board: BoardInput): number {
+  let count = 0;
+  for (let index = 0; index < board.values.length; index++) {
+    if (!board.givens[index] && board.values[index] === 0) count++;
+  }
+  return count;
+}
+
+/** Player fills that disagree with the solution. Givens and empty cells are skipped. */
+export function wrongFillIndexes(board: BoardInput): number[] {
+  const wrong: number[] = [];
+  for (let index = 0; index < board.values.length; index++) {
+    if (board.givens[index] || board.values[index] === 0) continue;
+    if (board.values[index] !== board.solution[index]) wrong.push(index);
+  }
+  return wrong;
+}
+
 export function undoCell(board: BoardInput): void {
-  const previous = board.undo.pop();
-  if (!previous) return;
-  if (board.givens[previous.index]) return;
-  board.values[previous.index] = previous.value;
-  board.notes[previous.index] = previous.notes;
+  const step = board.undo.pop();
+  if (!step) return;
+  for (const previous of step.cells) {
+    if (board.givens[previous.index]) continue;
+    board.values[previous.index] = previous.value;
+    board.notes[previous.index] = previous.notes;
+  }
   board.selectedCell = null;
   if (board.selectedDigit !== null && isDigitDone(board, board.selectedDigit)) {
     board.selectedDigit = null;
