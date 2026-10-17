@@ -1,6 +1,17 @@
+import {
+  armDigit,
+  conflictMask,
+  createBoard,
+  isDigitDone,
+  remainingCount,
+  restartBoard,
+  tapCell,
+  undoCell,
+  type BoardInput,
+} from "./board-input";
 import { generate, type Difficulty, type Puzzle } from "./engine/generate";
 import { nextSingleCell } from "./engine/hint";
-import { TECHNIQUE_LABEL, peersOf, type AppliedTechnique } from "./engine/techniques";
+import { TECHNIQUE_LABEL, type AppliedTechnique } from "./engine/techniques";
 
 type Phase =
   | { kind: "home" }
@@ -8,24 +19,13 @@ type Phase =
   | { kind: "error"; difficulty: Difficulty; message: string }
   | { kind: "play"; play: Play };
 
-interface History {
-  values: number[];
-  notes: number[];
-}
-
-interface Play {
+interface Play extends BoardInput {
   difficulty: Difficulty;
   puzzle: Puzzle;
-  values: number[];
-  notes: number[];
-  givens: boolean[];
-  selected: number;
-  notesMode: boolean;
-  undo: History[];
   hint: number | null;
   hintNote: string | null;
   complete: boolean;
-  confirm: null | "new" | "back";
+  confirm: null | "new" | "back" | "restart";
 }
 
 const appRoot = { el: null as HTMLElement | null };
@@ -44,22 +44,25 @@ function techniqueLabel(id: string): string {
 }
 
 function freshPlay(difficulty: Difficulty, puzzle: Puzzle): Play {
-  const values = puzzle.givens.flat();
-  const firstEmpty = values.findIndex((value) => value === 0);
+  const board = createBoard(puzzle.givens.flat(), puzzle.solution.flat());
   return {
+    ...board,
     difficulty,
     puzzle,
-    values,
-    notes: Array(81).fill(0),
-    givens: values.map((value) => value !== 0),
-    selected: firstEmpty === -1 ? 0 : firstEmpty,
-    notesMode: false,
-    undo: [],
     hint: null,
     hintNote: null,
     complete: false,
     confirm: null,
   };
+}
+
+function syncComplete(play: Play): void {
+  const solution = play.solution;
+  play.complete = play.values.every((value, index) => value === solution[index]);
+  if (play.complete || (play.selectedDigit !== null && isDigitDone(play, play.selectedDigit))) {
+    play.selectedDigit = null;
+    play.selectedCell = null;
+  }
 }
 
 async function startGame(difficulty: Difficulty): Promise<void> {
@@ -116,6 +119,20 @@ function onClick(event: MouseEvent): void {
     void startGame(phase.play.difficulty);
     return;
   }
+  if (action === "restart") {
+    if (phase.kind !== "play") return;
+    if (dirty(phase.play)) {
+      phase.play.confirm = "restart";
+      render();
+      return;
+    }
+    restartBoard(phase.play);
+    phase.play.complete = false;
+    phase.play.hint = null;
+    phase.play.hintNote = null;
+    render();
+    return;
+  }
   if (action === "confirm-no") {
     if (phase.kind === "play") phase.play.confirm = null;
     render();
@@ -132,6 +149,12 @@ function onClick(event: MouseEvent): void {
       render();
     } else if (choice === "new") {
       void startGame(difficulty);
+    } else if (choice === "restart") {
+      restartBoard(phase.play);
+      phase.play.complete = false;
+      phase.play.hint = null;
+      phase.play.hintNote = null;
+      render();
     }
     return;
   }
@@ -139,28 +162,30 @@ function onClick(event: MouseEvent): void {
   const play = phase.play;
   if (action === "select") {
     const index = Number(target.dataset.index);
-    if (Number.isInteger(index) && index >= 0 && index < 81) {
-      play.selected = index;
-      play.hintNote = null;
-      render();
-    }
-    return;
-  }
-  if (action === "digit") {
-    inputDigit(play, Number(target.dataset.digit));
-    return;
-  }
-  if (action === "notes") {
-    play.notesMode = !play.notesMode;
+    tapCell(play, index);
+    play.hint = null;
+    play.hintNote = null;
+    syncComplete(play);
     render();
     return;
   }
-  if (action === "clear") {
-    clearCell(play);
+  if (action === "digit") {
+    armDigit(play, Number(target.dataset.digit));
+    play.hintNote = null;
+    render();
+    return;
+  }
+  if (action === "notes") {
+    play.pencilMode = !play.pencilMode;
+    render();
     return;
   }
   if (action === "undo") {
-    undo(play);
+    undoCell(play);
+    play.hint = null;
+    play.hintNote = null;
+    syncComplete(play);
+    render();
     return;
   }
   if (action === "hint") {
@@ -182,17 +207,14 @@ function onKeydown(event: KeyboardEvent): void {
 
   if (event.key >= "1" && event.key <= "9") {
     event.preventDefault();
-    inputDigit(play, Number(event.key));
-    return;
-  }
-  if (event.key === "Backspace" || event.key === "Delete" || event.key === "0") {
-    event.preventDefault();
-    clearCell(play);
+    armDigit(play, Number(event.key));
+    play.hintNote = null;
+    render();
     return;
   }
   if (event.key === "n" || event.key === "N") {
     event.preventDefault();
-    play.notesMode = !play.notesMode;
+    play.pencilMode = !play.pencilMode;
     render();
     return;
   }
@@ -203,94 +225,12 @@ function onKeydown(event: KeyboardEvent): void {
   }
   if (event.key === "z" || event.key === "Z") {
     event.preventDefault();
-    undo(play);
-    return;
-  }
-  if (!event.key.startsWith("Arrow")) return;
-  event.preventDefault();
-  const row = Math.floor(play.selected / 9);
-  const col = play.selected % 9;
-  let next = play.selected;
-  if (event.key === "ArrowLeft" && col > 0) next -= 1;
-  if (event.key === "ArrowRight" && col < 8) next += 1;
-  if (event.key === "ArrowUp" && row > 0) next -= 9;
-  if (event.key === "ArrowDown" && row < 8) next += 9;
-  play.selected = next;
-  render();
-}
-
-function pushHistory(play: Play): void {
-  play.undo.push({ values: play.values.slice(), notes: play.notes.slice() });
-  if (play.undo.length > 200) play.undo.shift();
-}
-
-function inputDigit(play: Play, digit: number): void {
-  if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
-  const index = play.selected;
-  if (play.givens[index]) {
-    play.hintNote = "這一格是題目數字。";
-    render();
-    return;
-  }
-  if (play.notesMode) {
-    if (play.values[index] !== 0) {
-      play.hintNote = "先清除數字，再寫筆記。";
-      render();
-      return;
-    }
-    const bit = 1 << digit;
-    const next = play.notes[index] ^ bit;
-    if (next === play.notes[index]) return;
-    pushHistory(play);
-    play.notes[index] = next;
+    undoCell(play);
     play.hint = null;
     play.hintNote = null;
+    syncComplete(play);
     render();
-    return;
   }
-
-  if (play.values[index] === digit) {
-    pushHistory(play);
-    play.values[index] = 0;
-  } else {
-    pushHistory(play);
-    play.values[index] = digit;
-    play.notes[index] = 0;
-    const bit = 1 << digit;
-    for (const peer of peersOf(index)) play.notes[peer] &= ~bit;
-  }
-  play.hint = null;
-  play.hintNote = null;
-  play.complete = solved(play);
-  render();
-}
-
-function clearCell(play: Play): void {
-  const index = play.selected;
-  if (play.givens[index]) {
-    play.hintNote = "這一格是題目數字。";
-    render();
-    return;
-  }
-  if (play.values[index] === 0 && play.notes[index] === 0) return;
-  pushHistory(play);
-  play.values[index] = 0;
-  play.notes[index] = 0;
-  play.hint = null;
-  play.hintNote = null;
-  play.complete = false;
-  render();
-}
-
-function undo(play: Play): void {
-  const previous = play.undo.pop();
-  if (!previous) return;
-  play.values = previous.values;
-  play.notes = previous.notes;
-  play.hint = null;
-  play.hintNote = null;
-  play.complete = solved(play);
-  render();
 }
 
 function showHint(play: Play): void {
@@ -302,44 +242,9 @@ function showHint(play: Play): void {
     return;
   }
   play.hint = index;
-  play.selected = index;
+  play.selectedCell = null;
   play.hintNote = "提示：這一格可以用唯一候選填上。";
   render();
-}
-
-function solved(play: Play): boolean {
-  const solution = play.puzzle.solution.flat();
-  return play.values.every((value, index) => value === solution[index]);
-}
-
-function conflictMask(values: readonly number[]): boolean[] {
-  const bad = Array<boolean>(81).fill(false);
-  const mark = (cells: number[]) => {
-    const where = new Map<number, number[]>();
-    for (const index of cells) {
-      const value = values[index];
-      if (!value) continue;
-      const list = where.get(value);
-      if (list) list.push(index);
-      else where.set(value, [index]);
-    }
-    for (const list of where.values()) {
-      if (list.length < 2) continue;
-      for (const index of list) bad[index] = true;
-    }
-  };
-  for (let row = 0; row < 9; row++) mark(Array.from({ length: 9 }, (_, col) => row * 9 + col));
-  for (let col = 0; col < 9; col++) mark(Array.from({ length: 9 }, (_, row) => row * 9 + col));
-  for (let box = 0; box < 9; box++) {
-    const row0 = Math.floor(box / 3) * 3;
-    const col0 = (box % 3) * 3;
-    const cells: number[] = [];
-    for (let row = 0; row < 3; row++) {
-      for (let col = 0; col < 3; col++) cells.push((row0 + row) * 9 + (col0 + col));
-    }
-    mark(cells);
-  }
-  return bad;
 }
 
 function cellLabel(index: number, value: number, given: boolean): string {
@@ -369,40 +274,62 @@ function esc(text: string): string {
   });
 }
 
+function confirmCopy(kind: Play["confirm"]): string {
+  if (kind === "back") return "返回並放棄這一題？";
+  if (kind === "restart") return "清除填寫，重開這一題？";
+  return "放棄這一題，再出一題？";
+}
+
 function boardHtml(play: Play): string {
   const conflicts = conflictMask(play.values);
-  const selectedValue = play.values[play.selected];
-  const peers = new Set(peersOf(play.selected));
+  const armed = play.selectedDigit;
+  const highlight = armed !== null && !isDigitDone(play, armed);
   let html = '<div class="board" role="grid" aria-label="數獨棋盤">';
   for (let index = 0; index < 81; index++) {
     const value = play.values[index];
     const classes = ["cell"];
     if (play.givens[index]) classes.push("given");
-    if (index === play.selected) classes.push("selected");
+    if (index === play.selectedCell) classes.push("selected");
     if (conflicts[index]) classes.push("bad");
     else if (index === play.hint) classes.push("hint");
-    else if (selectedValue !== 0 && value === selectedValue) classes.push("same");
-    else if (peers.has(index)) classes.push("peer");
+    else if (highlight && value === armed) classes.push("same");
     const thickRight = (index + 1) % 9 !== 0 && (index + 1) % 3 === 0;
     const row = Math.floor(index / 9);
     const thickBottom = row % 3 === 2 && row !== 8;
     if (thickRight) classes.push("thick-r");
     if (thickBottom) classes.push("thick-b");
     const inner = value !== 0 ? String(value) : notesHtml(play.notes[index]);
-    html += `<button type="button" class="${classes.join(" ")}" role="gridcell" data-action="select" data-index="${index}" aria-selected="${index === play.selected}" aria-label="${cellLabel(index, value, play.givens[index])}">${inner}</button>`;
+    html += `<button type="button" class="${classes.join(" ")}" role="gridcell" data-action="select" data-index="${index}" aria-selected="${index === play.selectedCell}" aria-label="${cellLabel(index, value, play.givens[index])}">${inner}</button>`;
   }
   html += "</div>";
   return html;
 }
 
+function padHtml(play: Play): string {
+  let digits = "";
+  for (let digit = 1; digit <= 9; digit++) {
+    const done = isDigitDone(play, digit);
+    const armed = !done && play.selectedDigit === digit;
+    const remain = remainingCount(play.values, digit);
+    const classes = ["pad-key"];
+    if (done) classes.push("done");
+    if (armed) classes.push("armed");
+    const disabled = play.complete || done ? "disabled" : "";
+    digits += `<button type="button" class="${classes.join(" ")}" data-action="digit" data-digit="${digit}" data-remaining="${remain}" data-done="${done}" aria-pressed="${armed}" aria-label="數字 ${digit}，剩餘 ${remain}" ${disabled}><span class="pad-digit">${digit}</span><span class="pad-remain">${remain}</span></button>`;
+  }
+  return `<div class="pad">${digits}</div>`;
+}
+
 function playHtml(play: Play): string {
   const label = techniqueLabel(play.puzzle.maxTechnique);
-  const status = play.hintNote ? `<p class="status" role="status">${esc(play.hintNote)}</p>` : `<p class="status quiet">最高技巧：${esc(label)}</p>`;
+  const status = play.hintNote
+    ? `<p class="status" role="status">${esc(play.hintNote)}</p>`
+    : `<p class="status quiet">先點數字，再點格子。最高技巧：${esc(label)}</p>`;
   const confirm =
     play.confirm === null
       ? ""
       : `<div class="confirm" role="alertdialog" aria-label="確認">
-          <p>${play.confirm === "back" ? "返回並放棄這一題？" : "放棄這一題，再出一題？"}</p>
+          <p>${confirmCopy(play.confirm)}</p>
           <button type="button" data-action="confirm-yes">確定</button>
           <button type="button" data-action="confirm-no">繼續</button>
         </div>`;
@@ -416,11 +343,7 @@ function playHtml(play: Play): string {
         </div>
       </div>`
     : "";
-  const disabled = play.complete ? "disabled" : "";
-  let digits = "";
-  for (let digit = 1; digit <= 9; digit++) {
-    digits += `<button type="button" data-action="digit" data-digit="${digit}" ${disabled}>${digit}</button>`;
-  }
+  const locked = play.complete ? "disabled" : "";
   return `<section class="play">
     <header class="top">
       <div>
@@ -428,22 +351,24 @@ function playHtml(play: Play): string {
         <h1>${esc(label)}</h1>
       </div>
       <div class="top-actions">
-        <button type="button" data-action="new">新遊戲</button>
+        <button type="button" data-action="new">新局</button>
+        <button type="button" data-action="restart">重開</button>
         <button type="button" data-action="back">返回</button>
       </div>
     </header>
     ${boardHtml(play)}
+    <div class="undo-bar">
+      <button type="button" data-action="undo" ${locked} ${play.undo.length === 0 ? "disabled" : ""}>撤銷</button>
+    </div>
     ${status}
     ${confirm}
     <div class="tools">
-      <button type="button" data-action="notes" aria-pressed="${play.notesMode}" ${disabled}>筆記</button>
-      <button type="button" data-action="clear" ${disabled}>清除</button>
-      <button type="button" data-action="undo" ${disabled} ${play.undo.length === 0 ? "disabled" : ""}>復原</button>
-      <button type="button" data-action="hint" ${disabled}>提示</button>
+      <button type="button" data-action="notes" aria-pressed="${play.pencilMode}" ${locked}>筆記</button>
+      <button type="button" data-action="hint" ${locked}>提示</button>
     </div>
-    <div class="pad">${digits}</div>
+    ${padHtml(play)}
     ${done}
-    <p class="help">方向鍵移動 · 1–9 填入 · N 筆記 · Z 復原 · H 提示</p>
+    <p class="help">1–9 選定數字，再點空格填入。再點同一數字可取消。N 筆記 · Z 撤銷 · H 提示</p>
   </section>`;
 }
 

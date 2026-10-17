@@ -197,12 +197,18 @@ button { cursor: pointer; touch-action: manipulation; }
 .cell.thick-b { border-bottom: 2px solid var(--line); }
 .cell:nth-child(9n) { border-right: none; }
 .cell:nth-child(n + 73) { border-bottom: none; }
-.cell.peer { background: var(--peer); }
 .cell.same { background: var(--same); }
 .cell.selected { background: var(--select); box-shadow: inset 0 0 0 2px #c47b1a; z-index: 1; }
 .cell.hint { box-shadow: inset 0 0 0 3px var(--hint); }
-.cell.bad { background: var(--bad-bg); color: var(--bad); }
-.cell.bad.given { color: var(--bad); }
+.cell.bad,
+.cell.bad.thick-r,
+.cell.bad.thick-b {
+  background: #FFEBEE;
+  color: #FF3B30;
+  border-color: #FF3B30;
+  box-shadow: inset 0 0 0 2px #FF3B30;
+}
+.cell.bad.given { color: #FF3B30; }
 
 .notes {
   display: grid;
@@ -236,9 +242,21 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .confirm p { margin: 0; }
 
+.undo-bar { margin-top: 0.65rem; }
+
+.undo-bar button {
+  width: 100%;
+  min-height: 44pt;
+  min-width: 44pt;
+  border-radius: 12px;
+  border: 1px solid #e3d6c4;
+  background: #fffdf8;
+  font-weight: 700;
+}
+
 .tools {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 0.4rem;
   margin-top: 0.75rem;
 }
@@ -258,14 +276,45 @@ button { cursor: pointer; touch-action: manipulation; }
 }
 
 .pad button {
-  min-height: 2.85rem;
-  padding: 0;
+  min-height: 44pt;
+  padding: 0.15rem 0 0.2rem;
   border-radius: 10px;
   border: 1px solid #e4d7c6;
   background: #fffdf8;
-  font-size: 1.2rem;
   font-weight: 720;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12rem;
+  line-height: 1;
 }
+
+.pad-digit { font-size: 1.15rem; }
+
+.pad-remain {
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.pad button.armed {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.pad button.armed .pad-remain { color: #f3e6d4; }
+
+.pad button.done,
+.pad button.done:disabled {
+  background: #34c759;
+  border-color: #34c759;
+  color: #fff;
+  opacity: 1;
+}
+
+.pad button.done .pad-remain { color: #fff; }
 
 button:disabled { opacity: 0.4; cursor: default; }
 

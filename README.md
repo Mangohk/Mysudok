@@ -45,11 +45,11 @@ npm run preview
 ## Play
 
 1. Home: choose **入門** or **進階**. The app shows「正在出題…」while it searches.
-2. Board: tap a cell, then a digit. **筆記** toggles pencil marks. **清除**, **復原**, and **提示** are under the grid. **新遊戲** deals another puzzle of the same difficulty. **返回** goes back to the difficulty choice.
+2. Board, digit first: tap **1–9** to arm that digit (nothing is written yet). Cells that already show it are highlighted. Tap an empty cell to fill it, or, in **筆記**, to toggle that candidate. Tap the same digit again to disarm it. Tap a filled cell you wrote to erase it. Givens cannot be edited. After a fill, the digit stays armed so you can keep placing it. Each digit button shows how many of that digit are still missing (`9 −` the number already on the board). A digit turns green when it sits in all nine solution cells and none of those cells conflict. **撤銷** undoes the last cell edit. **新局** deals another puzzle. **重開** clears your fills on this puzzle. **返回** goes back to the difficulty choice.
 3. **提示** highlights the next cell that [openzeloku](https://github.com/mr-girff/openzeloku) `nextHint` can fill with a naked or hidden single. It does not reveal the digit. If the next step is a pair or harder, the hint says no single is available.
-4. A finished board that matches the solution shows「完成」.
+4. A duplicate in a row, column, or box turns those cells light red. A finished board that matches the solution shows「完成」.
 
-Keyboard: arrow keys, `1`–`9`, `N` notes, `H` hint, Backspace clear, `Z` undo.
+Keyboard: `1`–`9` arm a digit, `N` notes, `H` hint, `Z` undo.
 
 Play state stays in memory only.
 
