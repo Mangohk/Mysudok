@@ -171,7 +171,7 @@ test("evidence peers are filled row, column, and box cells with a different digi
   assert.deepEqual(evidence, [1, 9]);
 });
 
-test("naked single takes four beats, then 填入 writes and clears the hint", () => {
+test("naked single writes on the fourth press, when the button is already 填入", () => {
   const grid = SOLUTION.slice();
   grid[40] = 0;
   const digit = SOLUTION[40];
@@ -205,19 +205,13 @@ test("naked single takes four beats, then 填入 writes and clears the hint", ()
   assert.equal(third.view.step, 3);
   assert.deepEqual(third.view.indexes, [40]);
   assert.equal(third.view.note, `填入 〔${digit}〕。`);
-  assert.equal(hintButtonLabel(3, "naked_single"), "再提示");
+  assert.equal(hintButtonLabel(3, "naked_single"), "填入");
 
-  const fourth = pressHint(third.view, grid);
-  assert.equal(fourth.write, null);
-  assert.equal(fourth.view.step, 4);
-  assert.deepEqual(fourth.view.indexes, [40]);
-  assert.equal(fourth.view.note, `填入 〔${digit}〕。`);
-  assert.equal(hintButtonLabel(4, "naked_single"), "填入");
-
-  const fill = pressHint(fourth.view, grid);
+  const fill = pressHint(third.view, grid);
   assert.deepEqual(fill.write, { index: 40, digit });
   assert.equal(fill.view.step, 0);
   assert.equal(fill.view.technique, null);
   assert.equal(fill.view.note, null);
   assert.deepEqual(fill.view.indexes, []);
+  assert.equal(hintButtonLabel(0, "naked_single"), "提示");
 });

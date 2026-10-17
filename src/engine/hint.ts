@@ -106,11 +106,11 @@ export function hintNakedMissingText(value: number): string {
 
 export type HintStepIndex = 0 | 1 | 2 | 3 | 4;
 
-/** Button label for the current hint step. Naked Single stays on 「提示」 through step 1 and ends on 「填入」. */
+/** Button label for the current hint step. Naked Single stays on 「提示」 through step 1 and is 「填入」 from step 3. */
 export function hintButtonLabel(step: number, technique: string | null): string {
   if (technique === "naked_single") {
     if (step <= 1) return "提示";
-    if (step >= 4) return "填入";
+    if (step >= 3) return "填入";
     return "再提示";
   }
   return step >= 1 ? "再提示" : "提示";
@@ -136,8 +136,8 @@ export function emptyHintView(note: string | null = null): HintView {
 
 /**
  * One press of the hint control.
- * Other techniques stop at step 2. Naked Single walks four visible beats;
- * the press while the button reads 「填入」 (step 4) is the one that writes.
+ * Other techniques stop at step 2. Naked Single reaches 「填入 〔n〕。」 on the
+ * third press, with the button already 「填入」. The fourth press writes.
  */
 export function pressHint(view: HintView, values: readonly number[]): HintPress {
   if (view.technique === "naked_single" && view.action?.kind === "fill" && view.step >= 1) {
@@ -176,12 +176,12 @@ export function pressHint(view: HintView, values: readonly number[]): HintPress 
 }
 
 interface NakedBeat {
-  step: 1 | 2 | 3 | 4;
+  step: 1 | 2 | 3;
   indexes: number[];
   note: string;
 }
 
-function nakedSingleBeat(step: 1 | 2 | 3 | 4, target: number, digit: number, evidence: readonly number[]): NakedBeat {
+function nakedSingleBeat(step: 1 | 2 | 3, target: number, digit: number, evidence: readonly number[]): NakedBeat {
   if (step === 1) {
     return {
       step,
@@ -200,10 +200,10 @@ function nakedSingleBeat(step: 1 | 2 | 3 | 4, target: number, digit: number, evi
 function pressNakedSingle(view: HintView, values: readonly number[], digit: number): HintPress {
   const target = view.indexes[0];
   if (target === undefined) return { view: emptyHintView(HINT_STUCK), write: null };
-  if (view.step >= 4) {
+  if (view.step >= 3) {
     return { view: emptyHintView(null), write: { index: target, digit } };
   }
-  const next = (view.step + 1) as 2 | 3 | 4;
+  const next = (view.step + 1) as 2 | 3;
   const beat = nakedSingleBeat(next, target, digit, evidencePeers(values, target, digit));
   return {
     view: {
