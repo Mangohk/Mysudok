@@ -131,6 +131,20 @@ function pushCell(board: BoardInput, index: number): void {
   pushUndo(board, [snapshot(board, index)]);
 }
 
+/**
+ * Filled cells in the same row, column, or box whose value is not `digit`.
+ * Empty cells and pencil notes are ignored. Givens and player fills both count.
+ */
+export function evidencePeers(values: readonly number[], index: number, digit: number): number[] {
+  if (!Number.isInteger(index) || index < 0 || index >= 81) return [];
+  const peers: number[] = [];
+  for (const peer of peersOf(index)) {
+    const value = values[peer] ?? 0;
+    if (value !== 0 && value !== digit) peers.push(peer);
+  }
+  return peers;
+}
+
 /** Drop `digit` from pencil notes in the same row, column, and box. */
 function clearPeerNotes(board: BoardInput, index: number, digit: number): void {
   const bit = 1 << digit;
@@ -144,6 +158,20 @@ function clearPeerNotes(board: BoardInput, index: number, digit: number): void {
   board.values[index] = digit;
   board.notes[index] = 0;
   for (const peer of peers) board.notes[peer.index] &= ~bit;
+}
+
+/**
+ * Write `digit` into an empty cell. Clears that digit from peer notes and
+ * pushes one undo step. Pencil mode does not turn this into a note toggle.
+ */
+export function writeDigit(board: BoardInput, index: number, digit: number): boolean {
+  if (!Number.isInteger(index) || index < 0 || index >= 81) return false;
+  if (!Number.isInteger(digit) || digit < 1 || digit > 9) return false;
+  if (board.givens[index] || (board.values[index] ?? 0) !== 0) return false;
+  clearPeerNotes(board, index, digit);
+  board.selectedCell = null;
+  if (isDigitDone(board, digit)) board.selectedDigit = null;
+  return true;
 }
 
 /** Tap a cell while a digit may be armed. Givens are ignored. */
@@ -169,9 +197,7 @@ export function tapCell(board: BoardInput, index: number): void {
     return;
   }
 
-  clearPeerNotes(board, index, digit);
-  board.selectedCell = null;
-  if (isDigitDone(board, digit)) board.selectedDigit = null;
+  writeDigit(board, index, digit);
 }
 
 export function emptyCellCount(board: BoardInput): number {

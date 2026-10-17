@@ -15,6 +15,7 @@ import {
   restartBoard,
   tapCell,
   undoCell,
+  writeDigit,
   wrongFillIndexes,
 } from "../src/board-input.ts";
 
@@ -255,6 +256,38 @@ test("a second 填滿候選 does not add an undo step when notes already match",
   assert.equal(board.undo.length, 1);
   fillAllCandidates(board);
   assert.equal(board.undo.length, 1);
+});
+
+test("writeDigit places a digit even in pencil mode and undo restores peer notes", () => {
+  const board = createBoard(SOLUTION.map(() => 0), SOLUTION);
+  board.pencilMode = true;
+  board.selectedDigit = 2;
+  board.notes[0] = (1 << 5) | (1 << 7);
+  board.notes[1] = (1 << 5) | (1 << 3);
+  board.notes[80] = 1 << 5;
+  assert.equal(writeDigit(board, 0, 5), true);
+  assert.equal(board.values[0], 5);
+  assert.equal(board.notes[0], 0);
+  assert.equal(board.notes[1], 1 << 3);
+  assert.equal(board.notes[80], 1 << 5);
+  assert.equal(board.pencilMode, true);
+  assert.equal(board.selectedDigit, 2);
+  assert.equal(board.undo.length, 1);
+  undoCell(board);
+  assert.equal(board.values[0], 0);
+  assert.equal(board.notes[0], (1 << 5) | (1 << 7));
+  assert.equal(board.notes[1], (1 << 5) | (1 << 3));
+});
+
+test("writeDigit does not overwrite a given or a filled cell", () => {
+  const clues = SOLUTION.map((value, index) => (index === 0 ? value : 0));
+  const board = createBoard(clues, SOLUTION);
+  assert.equal(writeDigit(board, 0, 5), false);
+  assert.equal(board.values[0], clues[0]);
+  assert.equal(board.undo.length, 0);
+  board.values[8] = 4;
+  assert.equal(writeDigit(board, 8, 5), false);
+  assert.equal(board.values[8], 4);
 });
 
 test("placedADigit is only a new fill", () => {
