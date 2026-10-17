@@ -192,6 +192,55 @@ export function wrongFillIndexes(board: BoardInput): number[] {
   return wrong;
 }
 
+/** Digits not already present in this cell's row, column, or box. Empty cells only. */
+export function legalCandidateMask(values: readonly number[], index: number): number {
+  if (values[index] !== 0) return 0;
+  const used = new Set<number>();
+  const row = Math.floor(index / 9);
+  const col = index % 9;
+  for (let c = 0; c < 9; c++) used.add(values[row * 9 + c] ?? 0);
+  for (let r = 0; r < 9; r++) used.add(values[r * 9 + col] ?? 0);
+  const boxRow = Math.floor(row / 3) * 3;
+  const boxCol = Math.floor(col / 3) * 3;
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) used.add(values[(boxRow + r) * 9 + (boxCol + c)] ?? 0);
+  }
+  used.delete(0);
+  let mask = 0;
+  for (let digit = 1; digit <= 9; digit++) {
+    if (!used.has(digit)) mask |= 1 << digit;
+  }
+  return mask;
+}
+
+export function maskDigits(mask: number): number[] {
+  const digits: number[] = [];
+  for (let digit = 1; digit <= 9; digit++) if ((mask & (1 << digit)) !== 0) digits.push(digit);
+  return digits;
+}
+
+/**
+ * Replace pencil notes on every empty non-given cell with the legal candidates.
+ * Givens and filled cells are left alone. One undo step restores the notes.
+ */
+export function fillAllCandidates(board: BoardInput): void {
+  const cells: CellSnapshot[] = [];
+  for (let index = 0; index < board.values.length; index++) {
+    if (board.givens[index] || board.values[index] !== 0) continue;
+    const next = legalCandidateMask(board.values, index);
+    if ((board.notes[index] ?? 0) === next) continue;
+    cells.push(snapshot(board, index));
+  }
+  if (cells.length === 0) return;
+  pushUndo(board, cells);
+  for (const cell of cells) board.notes[cell.index] = legalCandidateMask(board.values, cell.index);
+}
+
+/** True when a digit was written into a cell that was empty. */
+export function placedADigit(before: readonly number[], after: readonly number[]): boolean {
+  return after.some((value, index) => before[index] === 0 && value !== 0);
+}
+
 export function undoCell(board: BoardInput): void {
   const step = board.undo.pop();
   if (!step) return;
