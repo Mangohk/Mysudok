@@ -3,7 +3,9 @@ import {
   conflictMask,
   createBoard,
   emptyCellCount,
+  fillAllCandidates,
   isDigitDone,
+  placedADigit,
   remainingCount,
   restartBoard,
   tapCell,
@@ -13,11 +15,11 @@ import {
 } from "./board-input";
 import { generate, type Difficulty, type Puzzle } from "./engine/generate";
 import {
-  HINT_UNAVAILABLE,
-  findSingleHint,
+  HINT_STUCK,
+  findHint,
   hintLevel1Text,
-  hintLevel2FillText,
-  type SingleHint,
+  hintLevel2Text,
+  type HintAction,
 } from "./engine/hint";
 import { TECHNIQUE_LABEL, type AppliedTechnique } from "./engine/techniques";
 
@@ -31,10 +33,11 @@ interface Play extends BoardInput {
   difficulty: Difficulty;
   puzzle: Puzzle;
   hintStep: 0 | 1 | 2;
-  hintIndex: number | null;
-  hintTechnique: SingleHint["technique"] | null;
-  hintValue: number | undefined;
+  hintIndexes: number[];
+  hintTechnique: string | null;
+  hintAction: HintAction | null;
   hintNote: string | null;
+  candidateNote: string | null;
   checkNote: string | null;
   wrongMarks: number[] | null;
   menuOpen: boolean;
@@ -64,10 +67,11 @@ function freshPlay(difficulty: Difficulty, puzzle: Puzzle): Play {
     difficulty,
     puzzle,
     hintStep: 0,
-    hintIndex: null,
+    hintIndexes: [],
     hintTechnique: null,
-    hintValue: undefined,
+    hintAction: null,
     hintNote: null,
+    candidateNote: null,
     checkNote: null,
     wrongMarks: null,
     menuOpen: false,
@@ -78,9 +82,9 @@ function freshPlay(difficulty: Difficulty, puzzle: Puzzle): Play {
 
 function resetHint(play: Play): void {
   play.hintStep = 0;
-  play.hintIndex = null;
+  play.hintIndexes = [];
   play.hintTechnique = null;
-  play.hintValue = undefined;
+  play.hintAction = null;
   play.hintNote = null;
 }
 
@@ -94,6 +98,7 @@ function applyRestart(play: Play): void {
   play.complete = false;
   play.menuOpen = false;
   resetHint(play);
+  play.candidateNote = null;
   clearWrong(play);
 }
 
@@ -193,6 +198,7 @@ function onClick(event: MouseEvent): void {
     } else if (choice === "check") {
       const wrong = wrongFillIndexes(phase.play);
       phase.play.wrongMarks = wrong;
+      phase.play.candidateNote = null;
       phase.play.checkNote = wrong.length === 0 ? "未發現錯填。" : `已標 〔${wrong.length}〕 格唔啱 · 改完可繼續。`;
       phase.play.menuOpen = false;
       render();
@@ -210,12 +216,12 @@ function onClick(event: MouseEvent): void {
   if (play.complete) return;
   if (action === "select") {
     const index = Number(target.dataset.index);
-    const hinted = play.hintIndex;
+    const beforeValues = play.values.slice();
     const before = play.undo.length;
     tapCell(play, index);
     if (play.undo.length !== before) {
       clearWrong(play);
-      if (hinted !== null && play.values[hinted] !== 0) resetHint(play);
+      if (placedADigit(beforeValues, play.values)) resetHint(play);
     }
     syncComplete(play);
     render();
@@ -233,9 +239,17 @@ function onClick(event: MouseEvent): void {
     render();
     return;
   }
+  if (action === "fill-candidates") {
+    fillAllCandidates(play);
+    resetHint(play);
+    play.candidateNote = "已填合法候選 · 可撤銷";
+    render();
+    return;
+  }
   if (action === "undo") {
     undoCell(play);
     resetHint(play);
+    play.candidateNote = null;
     clearWrong(play);
     syncComplete(play);
     render();
@@ -285,6 +299,7 @@ function onKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     undoCell(play);
     resetHint(play);
+    play.candidateNote = null;
     clearWrong(play);
     syncComplete(play);
     render();
@@ -292,9 +307,10 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function showHint(play: Play): void {
-  if (play.hintStep === 1 && play.hintTechnique && play.hintValue !== undefined) {
+  if (play.hintStep === 1 && play.hintAction) {
     play.hintStep = 2;
-    play.hintNote = hintLevel2FillText(play.hintValue);
+    play.candidateNote = null;
+    play.hintNote = hintLevel2Text(play.hintAction);
     render();
     return;
   }
@@ -302,17 +318,19 @@ function showHint(play: Play): void {
     render();
     return;
   }
-  const hint = findSingleHint(play.values);
+  const hint = findHint(play.values);
   if (!hint) {
     resetHint(play);
-    play.hintNote = HINT_UNAVAILABLE;
+    play.candidateNote = null;
+    play.hintNote = HINT_STUCK;
     render();
     return;
   }
   play.hintStep = 1;
-  play.hintIndex = hint.index;
+  play.hintIndexes = hint.indexes;
   play.hintTechnique = hint.technique;
-  play.hintValue = hint.value;
+  play.hintAction = hint.action;
+  play.candidateNote = null;
   play.hintNote = hintLevel1Text(hint);
   play.selectedCell = null;
   render();
@@ -364,7 +382,7 @@ function boardHtml(play: Play): string {
     if (index === play.selectedCell) classes.push("selected");
     if (conflicts[index]) classes.push("bad");
     if (play.wrongMarks?.includes(index)) classes.push("wrong");
-    if (!conflicts[index] && play.hintStep >= 1 && index === play.hintIndex) classes.push("hint");
+    if (!conflicts[index] && play.hintStep >= 1 && play.hintIndexes.includes(index)) classes.push("hint");
     else if (!conflicts[index] && highlight && value === armed) classes.push("same");
     const thickRight = (index + 1) % 9 !== 0 && (index + 1) % 3 === 0;
     const row = Math.floor(index / 9);
@@ -395,7 +413,7 @@ function padHtml(play: Play): string {
 
 function playHtml(play: Play): string {
   const label = techniqueLabel(play.puzzle.maxTechnique);
-  const banner = play.hintNote ?? play.checkNote;
+  const banner = play.hintNote ?? play.candidateNote ?? play.checkNote;
   const status = banner
     ? `<p class="status" role="status">${esc(banner)}</p>`
     : `<p class="status quiet">先點數字，再點格子。最高技巧：${esc(label)}</p>`;
@@ -443,6 +461,7 @@ function playHtml(play: Play): string {
     ${confirm}
     <div class="tools">
       <button type="button" data-action="notes" aria-pressed="${play.pencilMode}" ${locked}>筆記</button>
+      <button type="button" class="minor" data-action="fill-candidates" ${locked}>填滿候選</button>
       <button type="button" data-action="hint" ${locked}>${hintLabel}</button>
       <div class="menu">
         <button type="button" data-action="menu" aria-expanded="${play.menuOpen}" aria-haspopup="menu" aria-label="更多" ${locked}>⋯</button>

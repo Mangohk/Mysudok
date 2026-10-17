@@ -6,7 +6,11 @@ import {
   createBoard,
   digitCount,
   emptyCellCount,
+  fillAllCandidates,
   isDigitDone,
+  legalCandidateMask,
+  maskDigits,
+  placedADigit,
   remainingCount,
   restartBoard,
   tapCell,
@@ -212,6 +216,52 @@ test("wrong fills are player cells that disagree with the solution", () => {
   const wrong = wrongFillIndexes(board);
   assert.deepEqual(wrong, [20]);
   assert.equal(wrong.includes(0), false);
+});
+
+test("填滿候選 writes legal notes on empty cells in one undo step", () => {
+  const clues = SOLUTION.map((value, index) => (index < 8 ? value : 0));
+  const board = createBoard(clues, SOLUTION);
+  board.values[20] = 4;
+  board.notes[20] = 1 << 9;
+  board.notes[1] = 1 << 2;
+  board.notes[8] = 1 << 1;
+  const givenNotes = board.notes[0];
+  const filledNotes = board.notes[20];
+  const valuesBefore = board.values.slice();
+
+  fillAllCandidates(board);
+
+  assert.deepEqual(board.values, valuesBefore);
+  assert.equal(board.notes[0], givenNotes);
+  assert.equal(board.notes[1], 1 << 2);
+  assert.equal(board.notes[20], filledNotes);
+  assert.deepEqual(maskDigits(board.notes[8]), [7]);
+  assert.deepEqual(maskDigits(board.notes[8]), maskDigits(legalCandidateMask(board.values, 8)));
+  assert.equal(board.undo.length, 1);
+  assert.ok(board.undo[0]?.cells.some((cell) => cell.index === 8));
+  assert.equal(board.undo[0]?.cells.some((cell) => cell.index === 0 || cell.index === 20), false);
+
+  const written = board.notes.slice();
+  undoCell(board);
+  assert.equal(board.notes[8], 1 << 1);
+  assert.equal(board.notes[20], filledNotes);
+  assert.notDeepEqual(board.notes, written);
+  assert.equal(board.undo.length, 0);
+});
+
+test("a second 填滿候選 does not add an undo step when notes already match", () => {
+  const board = createBoard(SOLUTION.map((value, index) => (index % 4 === 0 ? value : 0)), SOLUTION);
+  fillAllCandidates(board);
+  assert.equal(board.undo.length, 1);
+  fillAllCandidates(board);
+  assert.equal(board.undo.length, 1);
+});
+
+test("placedADigit is only a new fill", () => {
+  const before = [1, 0, 2];
+  assert.equal(placedADigit(before, [1, 4, 2]), true);
+  assert.equal(placedADigit(before, [1, 0, 0]), false);
+  assert.equal(placedADigit(before, [1, 0, 2]), false);
 });
 
 test("重開 clears fills and the undo stack but keeps givens", () => {

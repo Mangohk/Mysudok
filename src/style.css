@@ -276,10 +276,24 @@ button { cursor: pointer; touch-action: manipulation; }
 }
 
 .tools {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 0.4rem;
   margin-top: 0.75rem;
+}
+
+.tools > button[data-action="notes"],
+.tools > button[data-action="hint"] {
+  flex: 1 1 5.5rem;
+}
+
+.tools > button.minor {
+  flex: 1 1 auto;
+  font-size: 0.82rem;
+  font-weight: 650;
+  background: #f6efe4;
+  color: #5c5146;
 }
 
 .tools button { border-radius: 12px; }
@@ -290,7 +304,7 @@ button { cursor: pointer; touch-action: manipulation; }
   border-color: var(--ink);
 }
 
-.menu { position: relative; }
+.menu { position: relative; flex: 0 0 auto; }
 
 .menu > button { min-width: 2.8rem; }
 
