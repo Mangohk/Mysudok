@@ -18,6 +18,7 @@ import { generate, type Difficulty, type Puzzle } from "./engine/generate";
 import {
   emptyHintView,
   hintButtonLabel,
+  hintCellClasses,
   pressHint,
   techniqueTitle,
   type HintAction,
@@ -392,10 +393,11 @@ function boardHtml(play: Play): string {
     if (index === play.selectedCell) classes.push("selected");
     if (conflicts[index]) classes.push("bad");
     if (play.wrongMarks?.includes(index)) classes.push("wrong");
-    if (!conflicts[index] && play.hintStep >= 1 && play.hintIndexes.includes(index)) {
-      const evidence = play.hintTechnique === "naked_single" && play.hintStep === 2 && index !== play.hintIndexes[0];
-      classes.push(evidence ? "hint-evidence" : "hint");
-    } else if (!conflicts[index] && highlight && value === armed) classes.push("same");
+    const hintClasses = conflicts[index]
+      ? []
+      : hintCellClasses(play.hintTechnique, play.hintStep, play.hintIndexes, index, value);
+    if (hintClasses.length > 0) classes.push(...hintClasses);
+    else if (!conflicts[index] && highlight && value === armed) classes.push("same");
     const thickRight = (index + 1) % 9 !== 0 && (index + 1) % 3 === 0;
     const row = Math.floor(index / 9);
     const thickBottom = row % 3 === 2 && row !== 8;

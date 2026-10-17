@@ -1,5 +1,5 @@
 import { nextHint, type TechniqueName } from "openzeloku";
-import { evidencePeers } from "../board-input";
+import { evidencePeers, hiddenSingleHouse, type HiddenSingleHouse } from "../board-input";
 import { TECHNIQUE_LABEL, type AppliedTechnique } from "./techniques";
 
 /**
@@ -104,11 +104,22 @@ export function hintNakedMissingText(value: number): string {
   return `得 〔${value}〕 未出現喺呢行／列／宮。`;
 }
 
+const HOUSE_WORD: Record<HiddenSingleHouse["kind"], string> = {
+  row: "行",
+  col: "列",
+  box: "宮",
+};
+
+/** Hidden Single beat 2: the digit is the only place it fits in the inferred house. */
+export function hintHiddenSingleText(value: number, kind: HiddenSingleHouse["kind"]): string {
+  return `得 〔${value}〕 喺呢${HOUSE_WORD[kind]}只得這一格。`;
+}
+
 export type HintStepIndex = 0 | 1 | 2 | 3 | 4;
 
-/** Button label for the current hint step. Naked Single stays on 「提示」 through step 1 and is 「填入」 from step 3. */
+/** Button label for the current hint step. Singles stay on 「提示」 through step 1 and are 「填入」 from step 3. */
 export function hintButtonLabel(step: number, technique: string | null): string {
-  if (technique === "naked_single") {
+  if (technique === "naked_single" || technique === "hidden_single") {
     if (step <= 1) return "提示";
     if (step >= 3) return "填入";
     return "再提示";
@@ -126,7 +137,7 @@ export interface HintView {
 
 export interface HintPress {
   view: HintView;
-  /** Set only when the player presses 「填入」 on a Naked Single. The view is already cleared. */
+  /** Set only when the player presses 「填入」 on a Naked Single or Hidden Single. The view is already cleared. */
   write: { index: number; digit: number } | null;
 }
 
@@ -136,12 +147,16 @@ export function emptyHintView(note: string | null = null): HintView {
 
 /**
  * One press of the hint control.
- * Other techniques stop at step 2. Naked Single reaches 「填入 〔n〕。」 on the
- * third press, with the button already 「填入」. The fourth press writes.
+ * Other techniques stop at step 2. Naked Single and Hidden Single reach
+ * 「填入 〔n〕。」 on the third press, with the button already 「填入」.
+ * The fourth press writes.
  */
 export function pressHint(view: HintView, values: readonly number[]): HintPress {
   if (view.technique === "naked_single" && view.action?.kind === "fill" && view.step >= 1) {
     return pressNakedSingle(view, values, view.action.value);
+  }
+  if (view.technique === "hidden_single" && view.action?.kind === "fill" && view.step >= 1) {
+    return pressHiddenSingle(view, values, view.action.value);
   }
   if (view.step === 1 && view.action) {
     return { view: { ...view, step: 2, note: hintLevel2Text(view.action) }, write: null };
@@ -152,6 +167,19 @@ export function pressHint(view: HintView, values: readonly number[]): HintPress 
   if (!hint) return { view: emptyHintView(HINT_STUCK), write: null };
   if (hint.technique === "naked_single" && hint.action.kind === "fill") {
     const beat = nakedSingleBeat(1, hint.indexes[0], hint.action.value, []);
+    return {
+      view: {
+        step: 1,
+        indexes: beat.indexes,
+        technique: hint.technique,
+        action: hint.action,
+        note: beat.note,
+      },
+      write: null,
+    };
+  }
+  if (hint.technique === "hidden_single" && hint.action.kind === "fill") {
+    const beat = hiddenSingleBeat(1, hint.indexes[0], hint.action.value, null);
     return {
       view: {
         step: 1,
@@ -175,13 +203,13 @@ export function pressHint(view: HintView, values: readonly number[]): HintPress 
   };
 }
 
-interface NakedBeat {
+interface SingleBeat {
   step: 1 | 2 | 3;
   indexes: number[];
   note: string;
 }
 
-function nakedSingleBeat(step: 1 | 2 | 3, target: number, digit: number, evidence: readonly number[]): NakedBeat {
+function nakedSingleBeat(step: 1 | 2 | 3, target: number, digit: number, evidence: readonly number[]): SingleBeat {
   if (step === 1) {
     return {
       step,
@@ -215,6 +243,77 @@ function pressNakedSingle(view: HintView, values: readonly number[], digit: numb
     },
     write: null,
   };
+}
+
+function hiddenSingleBeat(
+  step: 1 | 2 | 3,
+  target: number,
+  digit: number,
+  house: HiddenSingleHouse | null,
+): SingleBeat {
+  if (step === 1) {
+    return {
+      step,
+      indexes: [target],
+      note: hintLevel1Text({
+        indexes: [target],
+        technique: "hidden_single",
+        action: { kind: "fill", value: digit },
+      }),
+    };
+  }
+  if (step === 2) {
+    const indexes = [target];
+    for (const cell of house?.cells ?? []) if (!indexes.includes(cell)) indexes.push(cell);
+    const note = house ? hintHiddenSingleText(digit, house.kind) : `得 〔${digit}〕 喺呢一區只得這一格。`;
+    return { step, indexes, note };
+  }
+  return { step, indexes: [target], note: hintLevel2FillText(digit) };
+}
+
+function pressHiddenSingle(view: HintView, values: readonly number[], digit: number): HintPress {
+  const target = view.indexes[0];
+  if (target === undefined) return { view: emptyHintView(HINT_STUCK), write: null };
+  if (view.step >= 3) {
+    return { view: emptyHintView(null), write: { index: target, digit } };
+  }
+  const next = (view.step + 1) as 2 | 3;
+  const house = next === 2 ? hiddenSingleHouse(values, target, digit) : null;
+  const beat = hiddenSingleBeat(next, target, digit, house);
+  return {
+    view: {
+      step: beat.step,
+      indexes: beat.indexes,
+      technique: "hidden_single",
+      action: view.action,
+      note: beat.note,
+    },
+    write: null,
+  };
+}
+
+/**
+ * Classes for one cell in the current hint.
+ * Hidden Single beat 2 paints the whole house, a blue frame on the other
+ * empty cells, and the usual target mark. Filled house cells stay unmarked
+ * beyond the house wash.
+ */
+export function hintCellClasses(
+  technique: string | null,
+  step: number,
+  indexes: readonly number[],
+  index: number,
+  value: number,
+): string[] {
+  if (step < 1 || !indexes.includes(index)) return [];
+  if (technique === "hidden_single" && step === 2) {
+    const classes = ["hint-house"];
+    if (index === indexes[0]) classes.push("hint");
+    else if (value === 0) classes.push("hint-evidence");
+    return classes;
+  }
+  const evidence = technique === "naked_single" && step === 2 && index !== indexes[0];
+  return [evidence ? "hint-evidence" : "hint"];
 }
 
 /** L2 for a placement: the digit `nextHint` already returned. */
