@@ -216,6 +216,18 @@ button { cursor: pointer; touch-action: manipulation; }
   box-shadow: inset 0 0 0 2px #2c6f97;
   z-index: 1;
 }
+.cell.hint-house {
+  background: #f4e7c8;
+}
+.cell.hint-house.hint-evidence {
+  background: #f4e7c8;
+  box-shadow: inset 0 0 0 2px #2c6f97;
+}
+.cell.hint-house.hint {
+  background: #e5f4ea;
+  box-shadow: inset 0 0 0 3px var(--hint);
+  z-index: 1;
+}
 .cell.bad,
 .cell.bad.thick-r,
 .cell.bad.thick-b {

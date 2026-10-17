@@ -145,6 +145,60 @@ export function evidencePeers(values: readonly number[], index: number, digit: n
   return peers;
 }
 
+export interface HiddenSingleHouse {
+  kind: "row" | "col" | "box";
+  cells: number[];
+}
+
+function rowCells(index: number): number[] {
+  const row = Math.floor(index / 9);
+  return Array.from({ length: 9 }, (_, col) => row * 9 + col);
+}
+
+function colCells(index: number): number[] {
+  const col = index % 9;
+  return Array.from({ length: 9 }, (_, row) => row * 9 + col);
+}
+
+function boxCells(index: number): number[] {
+  const row0 = Math.floor(Math.floor(index / 9) / 3) * 3;
+  const col0 = Math.floor((index % 9) / 3) * 3;
+  const cells: number[] = [];
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) cells.push((row0 + row) * 9 + (col0 + col));
+  }
+  return cells;
+}
+
+function cellCanHoldDigit(values: readonly number[], index: number, digit: number): boolean {
+  if ((values[index] ?? 0) !== 0) return false;
+  return (legalCandidateMask(values, index) & (1 << digit)) !== 0;
+}
+
+/**
+ * First unit where `digit` fits only in `target` among that unit's empty cells.
+ * Scan order is the target's row, then its column, then its box.
+ */
+export function hiddenSingleHouse(
+  values: readonly number[],
+  target: number,
+  digit: number,
+): HiddenSingleHouse | null {
+  if (!Number.isInteger(target) || target < 0 || target >= 81) return null;
+  if (!Number.isInteger(digit) || digit < 1 || digit > 9) return null;
+  if (!cellCanHoldDigit(values, target, digit)) return null;
+  const units: HiddenSingleHouse[] = [
+    { kind: "row", cells: rowCells(target) },
+    { kind: "col", cells: colCells(target) },
+    { kind: "box", cells: boxCells(target) },
+  ];
+  for (const unit of units) {
+    const holders = unit.cells.filter((index) => cellCanHoldDigit(values, index, digit));
+    if (holders.length === 1 && holders[0] === target) return unit;
+  }
+  return null;
+}
+
 /** Drop `digit` from pencil notes in the same row, column, and box. */
 function clearPeerNotes(board: BoardInput, index: number, digit: number): void {
   const bit = 1 << digit;
