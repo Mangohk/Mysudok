@@ -46,7 +46,13 @@ npm run preview
 
 1. Home: choose **入門** or **進階**. The app shows「正在出題…」while it searches.
 2. Board, digit first: tap **1–9** to arm that digit (nothing is written yet). Cells that already show it are highlighted. Tap an empty cell to fill it, or, in **筆記**, to toggle that candidate. Tap the same digit again to disarm it. Tap a filled cell you wrote to erase it. Givens cannot be edited. After a fill, the digit stays armed so you can keep placing it, and that same digit is cleared from pencil notes in the same row, column, and box. **撤銷** undoes that fill and those note changes together. **填滿候選**, beside **筆記**, writes every legal candidate into the empty cells as pencil notes. That rewrite is one undo step, and the status line says「已填合法候選 · 可撤銷」. Each digit button shows how many of that digit are still missing (`9 −` the number already on the board). A digit turns green when it sits in all nine solution cells and none of those cells conflict. The header shows「仲剩 N 格」, the empty cells that were not givens. **新局** deals another puzzle. **重開** clears your fills on this puzzle. **返回** goes back to the difficulty choice.
-3. **提示** is two steps for whatever [openzeloku](https://github.com/mr-girff/openzeloku) `nextHint` can teach. The first tap highlights the cells in that step, names the technique, and does not reveal a digit or which candidates to clear. The button becomes **再提示**. The second tap either says which digit to fill or which candidates to change, using only what that hint step returned. If there is no next step, the status line says「解唔落。」. Arming a digit, undoing, filling a cell, **填滿候選**, **新局**, or **重開** leaves the hint.
+3. **提示** follows the next [openzeloku](https://github.com/mr-girff/openzeloku) `nextHint` step. Technique names in the header and in hints are Title Case English (Naked Single, Hidden Single, Naked Pair, Hidden Pair, Pointing Pair, Box/Line Reduction, X-Wing, Swordfish). Reason sentences stay Cantonese.
+
+   Every technique except Naked Single is two steps. The first tap highlights the cells in that step, names the technique, and does not reveal a digit or which candidates to clear. The button becomes **再提示**. The second tap either says which digit to fill or which candidates to change, using only what that hint step returned.
+
+   Naked Single is four presses. The first tap highlights the target cell and names the technique; the button stays **提示**. The second tap states the digit and highlights that cell plus filled peers in the same row, column, and box whose value is a different digit (givens and player fills; pencil notes are not marked). The button becomes **再提示**. The third tap says to fill that digit and leaves only the target highlighted; the button becomes **填入**. The fourth tap writes the digit through the normal fill path (peer notes clear, one undo step) and leaves the hint.
+
+   If there is no next step, the status line says「解唔落。」. Arming a digit, undoing, filling a cell, **填滿候選**, **新局**, or **重開** leaves the hint.
 4. **⋯ → 檢查錯格** asks first, then draws an orange border on player fills that disagree with the solution. It does not change the board. Editing a cell, **撤銷**, **新局**, or **重開** clears those marks.
 5. A duplicate in a row, column, or box turns those cells light red. A finished board that matches the solution shows「完成」.
 
@@ -83,14 +89,14 @@ Clue count is only a side effect of carving a grid. The accept/reject decision i
 
 Ids are openzeloku's `TechniqueName` strings.
 
-| Rank | id | 中文 | 難度 |
+| Rank | id | Name | 難度 |
 | ---: | --- | --- | --- |
-| 1 | `naked_single` | 顯式唯一 | 入門 |
-| 2 | `hidden_single` | 隱式唯一 | 入門 |
-| 3 | `naked_pair` | 顯式數對 | 進階 |
-| 4 | `hidden_pair` | 隱式數對 | 進階 |
-| 5 | `pointing_pair` | 區塊指向 | 進階 |
-| 6 | `box_line_reduction` | 宮線排除 | 進階 |
+| 1 | `naked_single` | Naked Single | 入門 |
+| 2 | `hidden_single` | Hidden Single | 入門 |
+| 3 | `naked_pair` | Naked Pair | 進階 |
+| 4 | `hidden_pair` | Hidden Pair | 進階 |
+| 5 | `pointing_pair` | Pointing Pair | 進階 |
+| 6 | `box_line_reduction` | Box/Line Reduction | 進階 |
 
 入門: `maxTechnique` is only `naked_single` or `hidden_single`.
 

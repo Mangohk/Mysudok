@@ -10,18 +10,19 @@ import {
   restartBoard,
   tapCell,
   undoCell,
+  writeDigit,
   wrongFillIndexes,
   type BoardInput,
 } from "./board-input";
 import { generate, type Difficulty, type Puzzle } from "./engine/generate";
 import {
-  HINT_STUCK,
-  findHint,
-  hintLevel1Text,
-  hintLevel2Text,
+  emptyHintView,
+  hintButtonLabel,
+  pressHint,
+  techniqueTitle,
   type HintAction,
+  type HintView,
 } from "./engine/hint";
-import { TECHNIQUE_LABEL, type AppliedTechnique } from "./engine/techniques";
 
 type Phase =
   | { kind: "home" }
@@ -32,7 +33,7 @@ type Phase =
 interface Play extends BoardInput {
   difficulty: Difficulty;
   puzzle: Puzzle;
-  hintStep: 0 | 1 | 2;
+  hintStep: HintView["step"];
   hintIndexes: number[];
   hintTechnique: string | null;
   hintAction: HintAction | null;
@@ -57,7 +58,25 @@ export function mount(root: HTMLElement): void {
 }
 
 function techniqueLabel(id: string): string {
-  return TECHNIQUE_LABEL[id as AppliedTechnique] ?? id;
+  return techniqueTitle(id);
+}
+
+function hintViewOf(play: Play): HintView {
+  return {
+    step: play.hintStep,
+    indexes: play.hintIndexes,
+    technique: play.hintTechnique,
+    action: play.hintAction,
+    note: play.hintNote,
+  };
+}
+
+function applyHintView(play: Play, view: HintView): void {
+  play.hintStep = view.step;
+  play.hintIndexes = view.indexes;
+  play.hintTechnique = view.technique;
+  play.hintAction = view.action;
+  play.hintNote = view.note;
 }
 
 function freshPlay(difficulty: Difficulty, puzzle: Puzzle): Play {
@@ -81,11 +100,7 @@ function freshPlay(difficulty: Difficulty, puzzle: Puzzle): Play {
 }
 
 function resetHint(play: Play): void {
-  play.hintStep = 0;
-  play.hintIndexes = [];
-  play.hintTechnique = null;
-  play.hintAction = null;
-  play.hintNote = null;
+  applyHintView(play, emptyHintView(null));
 }
 
 function clearWrong(play: Play): void {
@@ -307,32 +322,27 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function showHint(play: Play): void {
-  if (play.hintStep === 1 && play.hintAction) {
-    play.hintStep = 2;
-    play.candidateNote = null;
-    play.hintNote = hintLevel2Text(play.hintAction);
+  const result = pressHint(hintViewOf(play), play.values);
+  const unchanged =
+    result.write === null &&
+    result.view.step === play.hintStep &&
+    result.view.note === play.hintNote &&
+    result.view.technique === play.hintTechnique;
+  if (unchanged) {
     render();
     return;
   }
-  if (play.hintStep === 2) {
-    render();
-    return;
+  if (result.write) {
+    const before = play.values.slice();
+    if (writeDigit(play, result.write.index, result.write.digit) && placedADigit(before, play.values)) {
+      clearWrong(play);
+    }
+    syncComplete(play);
   }
-  const hint = findHint(play.values);
-  if (!hint) {
-    resetHint(play);
-    play.candidateNote = null;
-    play.hintNote = HINT_STUCK;
-    render();
-    return;
-  }
-  play.hintStep = 1;
-  play.hintIndexes = hint.indexes;
-  play.hintTechnique = hint.technique;
-  play.hintAction = hint.action;
+  const started = play.hintStep === 0 && result.view.step === 1;
+  applyHintView(play, result.view);
+  if (started) play.selectedCell = null;
   play.candidateNote = null;
-  play.hintNote = hintLevel1Text(hint);
-  play.selectedCell = null;
   render();
 }
 
@@ -382,8 +392,10 @@ function boardHtml(play: Play): string {
     if (index === play.selectedCell) classes.push("selected");
     if (conflicts[index]) classes.push("bad");
     if (play.wrongMarks?.includes(index)) classes.push("wrong");
-    if (!conflicts[index] && play.hintStep >= 1 && play.hintIndexes.includes(index)) classes.push("hint");
-    else if (!conflicts[index] && highlight && value === armed) classes.push("same");
+    if (!conflicts[index] && play.hintStep >= 1 && play.hintIndexes.includes(index)) {
+      const evidence = play.hintTechnique === "naked_single" && play.hintStep === 2 && index !== play.hintIndexes[0];
+      classes.push(evidence ? "hint-evidence" : "hint");
+    } else if (!conflicts[index] && highlight && value === armed) classes.push("same");
     const thickRight = (index + 1) % 9 !== 0 && (index + 1) % 3 === 0;
     const row = Math.floor(index / 9);
     const thickBottom = row % 3 === 2 && row !== 8;
@@ -417,7 +429,7 @@ function playHtml(play: Play): string {
   const status = banner
     ? `<p class="status" role="status">${esc(banner)}</p>`
     : `<p class="status quiet">先點數字，再點格子。最高技巧：${esc(label)}</p>`;
-  const hintLabel = play.hintStep >= 1 ? "再提示" : "提示";
+  const hintLabel = hintButtonLabel(play.hintStep, play.hintTechnique);
   const menu = play.menuOpen
     ? `<div class="menu-pop" role="menu"><button type="button" data-action="check-wrong">檢查錯格</button></div>`
     : "";

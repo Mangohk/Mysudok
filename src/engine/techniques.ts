@@ -4,14 +4,14 @@
  * Technique ids are openzeloku's `TechniqueName` strings
  * (https://github.com/mr-girff/openzeloku, MIT):
  *
- * | Rank | id                   | 中文     | Band |
- * | ---: | -------------------- | -------- | ---- |
- * |    1 | naked_single         | 顯式唯一 | 入門 |
- * |    2 | hidden_single        | 隱式唯一 | 入門 |
- * |    3 | naked_pair           | 顯式數對 | 進階 |
- * |    4 | hidden_pair          | 隱式數對 | 進階 |
- * |    5 | pointing_pair        | 區塊指向 | 進階 |
- * |    6 | box_line_reduction   | 宮線排除 | 進階 |
+ * | Rank | id                   | Label              | Band |
+ * | ---: | -------------------- | ------------------ | ---- |
+ * |    1 | naked_single         | Naked Single       | 入門 |
+ * |    2 | hidden_single        | Hidden Single      | 入門 |
+ * |    3 | naked_pair           | Naked Pair         | 進階 |
+ * |    4 | hidden_pair          | Hidden Pair        | 進階 |
+ * |    5 | pointing_pair        | Pointing Pair      | 進階 |
+ * |    6 | box_line_reduction   | Box/Line Reduction | 進階 |
  *
  * Not applied (a puzzle that still has empty cells after the list above is
  * rejected — it would need a triple, x_wing, swordfish, or guess):
@@ -36,12 +36,12 @@ export const TECHNIQUE_ORDER = [
 export type AppliedTechnique = (typeof TECHNIQUE_ORDER)[number];
 
 export const TECHNIQUE_LABEL: Record<AppliedTechnique, string> = {
-  naked_single: "顯式唯一",
-  hidden_single: "隱式唯一",
-  naked_pair: "顯式數對",
-  hidden_pair: "隱式數對",
-  pointing_pair: "區塊指向",
-  box_line_reduction: "宮線排除",
+  naked_single: "Naked Single",
+  hidden_single: "Hidden Single",
+  naked_pair: "Naked Pair",
+  hidden_pair: "Hidden Pair",
+  pointing_pair: "Pointing Pair",
+  box_line_reduction: "Box/Line Reduction",
 };
 
 const RANK: Record<AppliedTechnique, number> = {
