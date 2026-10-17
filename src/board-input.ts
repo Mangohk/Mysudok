@@ -1,0 +1,162 @@
+/** Digit-first board edits. Givens are never written and never undo entries. */
+
+export interface CellUndo {
+  index: number;
+  value: number;
+  notes: number;
+}
+
+export interface BoardInput {
+  values: number[];
+  notes: number[];
+  /** Initial clue grid. 0 = empty. Used by 重開. */
+  clues: number[];
+  givens: boolean[];
+  solution: number[];
+  selectedDigit: number | null;
+  selectedCell: number | null;
+  pencilMode: boolean;
+  undo: CellUndo[];
+}
+
+export function createBoard(clues: readonly number[], solution: readonly number[]): BoardInput {
+  return {
+    values: clues.slice(),
+    notes: Array(81).fill(0),
+    clues: clues.slice(),
+    givens: clues.map((value) => value !== 0),
+    solution: solution.slice(),
+    selectedDigit: null,
+    selectedCell: null,
+    pencilMode: false,
+    undo: [],
+  };
+}
+
+export function restartBoard(board: BoardInput): void {
+  board.values = board.clues.slice();
+  board.notes = Array(81).fill(0);
+  board.undo = [];
+  board.selectedDigit = null;
+  board.selectedCell = null;
+  board.pencilMode = false;
+}
+
+export function conflictMask(values: readonly number[]): boolean[] {
+  const bad = Array<boolean>(81).fill(false);
+  const mark = (cells: number[]) => {
+    const where = new Map<number, number[]>();
+    for (const index of cells) {
+      const value = values[index];
+      if (!value) continue;
+      const list = where.get(value);
+      if (list) list.push(index);
+      else where.set(value, [index]);
+    }
+    for (const list of where.values()) {
+      if (list.length < 2) continue;
+      for (const index of list) bad[index] = true;
+    }
+  };
+  for (let row = 0; row < 9; row++) mark(Array.from({ length: 9 }, (_, col) => row * 9 + col));
+  for (let col = 0; col < 9; col++) mark(Array.from({ length: 9 }, (_, row) => row * 9 + col));
+  for (let box = 0; box < 9; box++) {
+    const row0 = Math.floor(box / 3) * 3;
+    const col0 = (box % 3) * 3;
+    const cells: number[] = [];
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) cells.push((row0 + row) * 9 + (col0 + col));
+    }
+    mark(cells);
+  }
+  return bad;
+}
+
+export function digitCount(values: readonly number[], digit: number): number {
+  let count = 0;
+  for (const value of values) if (value === digit) count++;
+  return count;
+}
+
+/** 9 − how many times this digit is filled (givens + player fills). Notes are ignored. */
+export function remainingCount(values: readonly number[], digit: number): number {
+  return 9 - digitCount(values, digit);
+}
+
+/**
+ * True when this digit is filled in all 9 solution cells and none of those
+ * filled cells are in a row/column/box conflict. A full count of 9 with a
+ * duplicate still returns false.
+ */
+export function isDigitDone(board: BoardInput, digit: number): boolean {
+  const conflicts = conflictMask(board.values);
+  let correct = 0;
+  let conflict = false;
+  for (let index = 0; index < 81; index++) {
+    if (board.solution[index] === digit && board.values[index] === digit) correct++;
+    if (board.values[index] === digit && conflicts[index]) conflict = true;
+  }
+  return correct === 9 && !conflict;
+}
+
+export function armDigit(board: BoardInput, digit: number): void {
+  if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
+  if (isDigitDone(board, digit)) {
+    if (board.selectedDigit === digit) board.selectedDigit = null;
+    return;
+  }
+  board.selectedDigit = board.selectedDigit === digit ? null : digit;
+  board.selectedCell = null;
+}
+
+function pushCell(board: BoardInput, index: number): void {
+  if (board.givens[index]) return;
+  board.undo.push({
+    index,
+    value: board.values[index],
+    notes: board.notes[index],
+  });
+  if (board.undo.length > 200) board.undo.shift();
+}
+
+/** Tap a cell while a digit may be armed. Givens are ignored. */
+export function tapCell(board: BoardInput, index: number): void {
+  if (!Number.isInteger(index) || index < 0 || index >= 81) return;
+  if (board.givens[index]) return;
+  const digit = board.selectedDigit;
+  if (digit === null || isDigitDone(board, digit)) return;
+
+  if (board.values[index] !== 0) {
+    pushCell(board, index);
+    board.values[index] = 0;
+    board.notes[index] = 0;
+    board.selectedCell = null;
+    return;
+  }
+
+  if (board.pencilMode) {
+    const next = board.notes[index] ^ (1 << digit);
+    pushCell(board, index);
+    board.notes[index] = next;
+    board.selectedCell = null;
+    return;
+  }
+
+  pushCell(board, index);
+  board.values[index] = digit;
+  board.notes[index] = 0;
+  board.selectedCell = null;
+  if (isDigitDone(board, digit)) board.selectedDigit = null;
+}
+
+export function undoCell(board: BoardInput): void {
+  const previous = board.undo.pop();
+  if (!previous) return;
+  if (board.givens[previous.index]) return;
+  board.values[previous.index] = previous.value;
+  board.notes[previous.index] = previous.notes;
+  board.selectedCell = null;
+  if (board.selectedDigit !== null && isDigitDone(board, board.selectedDigit)) {
+    board.selectedDigit = null;
+  }
+}
