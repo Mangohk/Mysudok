@@ -1,24 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nextHint } from "openzeloku";
-import { evidencePeers, hiddenSingleHouse } from "../src/board-input.ts";
+import { legalCandidateMask } from "../src/board-input.ts";
 import {
+  HINT_NOTES,
   HINT_STUCK,
   emptyHintView,
   findHint,
+  hintBeginnerReveal,
   hintButtonLabel,
   hintCellClasses,
-  hintFromStep,
+  hintClearReveal,
   hintHiddenSingleText,
-  hintLevel1Text,
   hintLevel2FillText,
-  hintLevel2NotesText,
-  hintLevel2Text,
   hintNakedMissingText,
+  notesReady,
   pressHint,
   techniqueTitle,
   type HintView,
 } from "../src/engine/hint.ts";
+import {
+  findHiddenSet,
+  findLastFreeCell,
+  findLastPossibleNumber,
+  findLastRemainingCell,
+  findObviousSet,
+} from "../src/engine/techniques.ts";
 
 const SOLUTION = [
   6, 5, 4, 3, 1, 2, 9, 8, 7, 7, 8, 9, 5, 4, 6, 1, 3, 2, 3, 2, 1, 8, 9, 7, 5, 6, 4, 8, 4, 7, 6, 5, 3, 2, 1, 9, 2, 9,
@@ -26,337 +32,294 @@ const SOLUTION = [
   3, 9, 4, 5, 6,
 ];
 
-test("a full grid has no hint step", () => {
+const REMAINING = [
+  6, 1, 0, 2, 0, 9, 0, 0, 7, 0, 8, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 3, 0, 0, 0, 0, 8, 0, 0, 9, 0, 7, 0, 0, 5, 2, 0, 0,
+  1, 9, 4, 0, 7, 8, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 1, 0, 0, 5, 0, 0, 5, 0, 0, 2, 0, 0, 0, 0, 0, 4, 0,
+  0, 7, 0, 6, 3,
+];
+
+const POSSIBLE = [
+  0, 0, 9, 0, 1, 3, 0, 0, 0, 5, 8, 0, 0, 0, 4, 3, 0, 0, 0, 0, 2, 8, 0, 9, 0, 4, 0, 0, 0, 0, 6, 8, 5, 0, 0, 0, 6, 5,
+  8, 9, 3, 7, 1, 2, 4, 0, 0, 0, 1, 4, 2, 5, 0, 0, 8, 0, 5, 3, 0, 0, 4, 0, 7, 9, 0, 4, 0, 0, 0, 0, 0, 3, 0, 0, 0, 4,
+  0, 0, 0, 5, 0,
+];
+
+const HINT_IDS = [
+  "last_free_cell",
+  "last_remaining_cell",
+  "last_possible_number",
+  "notes",
+  "obvious_singles",
+  "obvious_pairs",
+  "obvious_triples",
+  "hidden_singles",
+  "hidden_pairs",
+  "hidden_triples",
+];
+
+function fullNotes(values: readonly number[]): number[] {
+  return values.map((value, index) => (value === 0 ? legalCandidateMask(values, index) : 0));
+}
+
+test("titles are Title Case and a full grid is stuck", () => {
+  assert.equal(techniqueTitle("last_free_cell"), "Last Free Cell");
+  assert.equal(techniqueTitle("notes"), "Notes In Sudoku");
+  assert.equal(techniqueTitle("obvious_singles"), "Obvious Singles");
+  assert.equal(techniqueTitle("hidden_singles"), "Hidden Singles");
+  assert.equal(techniqueTitle("obvious_pairs"), "Obvious Pairs");
+  assert.equal(techniqueTitle("pointing_pairs"), "Pointing Pairs");
+  assert.equal(techniqueTitle("x_wing"), "X-Wing");
+  assert.equal(techniqueTitle("y_wing"), "Y-Wing");
+  assert.equal(techniqueTitle("swordfish"), "Swordfish");
   assert.equal(findHint(SOLUTION), null);
   assert.equal(HINT_STUCK, "解唔落。");
+  const stuck = pressHint(emptyHintView(), SOLUTION);
+  assert.equal(stuck.view.note, HINT_STUCK);
+  assert.equal(stuck.write, null);
+  assert.equal(stuck.clearNotes, null);
+  assert.equal(stuck.fillCandidates, false);
 });
 
-test("findHint teaches the nextHint step and its value, not a second lookup", () => {
+test("scan order is #1 then #2 then #3, before notes and before #5", () => {
+  const hole = SOLUTION.slice();
+  hole[40] = 0;
+  assert.equal(findHint(hole)?.technique, "last_free_cell");
+
+  const remaining = findHint(REMAINING);
+  assert.equal(remaining?.technique, "last_remaining_cell");
+  assert.equal(findLastFreeCell(REMAINING), null);
+  assert.notEqual(findLastPossibleNumber(REMAINING), null);
+
+  const possible = findHint(POSSIBLE);
+  assert.equal(possible?.technique, "last_possible_number");
+  assert.equal(findLastFreeCell(POSSIBLE), null);
+  assert.equal(findLastRemainingCell(POSSIBLE), null);
+
+  const empty = Array<number>(81).fill(0);
+  assert.equal(findHint(empty)?.technique, "notes");
+  assert.equal(notesReady(empty, undefined), false);
+  const noted = fullNotes(empty);
+  assert.equal(notesReady(empty, noted), true);
+  assert.equal(findHint(empty, noted), null);
+  const hinted = findHint(empty, noted);
+  assert.equal(hinted, null);
+  assert.equal(HINT_IDS.includes("pointing_pairs"), false);
+});
+
+test("#1 Last Free Cell writes on the third press", () => {
   const grid = SOLUTION.slice();
   grid[40] = 0;
-  const hint = findHint(grid);
-  const library = nextHint(grid, 9);
-  assert.ok(hint);
-  assert.ok(library);
-  assert.deepEqual(hint.indexes, [library.row * 9 + library.col]);
-  assert.equal(hint.technique, library.technique);
-  assert.equal(hint.action.kind, "fill");
-  if (hint.action.kind !== "fill") return;
-  assert.equal(hint.action.value, library.value);
-
-  const level1 = hintLevel1Text(hint);
-  assert.equal(hint.technique, "naked_single");
-  assert.equal(level1, "這一格可用〔Naked Single〕：〔呢一格只剩一個候選〕。再撳提示睇下一步。");
-  assert.equal(level1.includes(String(hint.action.value)), false);
-  assert.equal(hintLevel2Text(hint.action), `填入 〔${library.value}〕。`);
-  assert.equal(hintLevel2FillText(library.value), `填入 〔${library.value}〕。`);
-  assert.equal(hintNakedMissingText(library.value), `得 〔${library.value}〕 未出現喺呢行／列／宮。`);
-});
-
-test("an elimination step uses the hint's own candidate list", () => {
-  const hint = hintFromStep({
-    row: 0,
-    col: 0,
-    value: 9,
-    technique: "naked_pair",
-    cells: [0, 1, 0],
-    clear: [7, 4, 7],
-  });
-  assert.ok(hint);
-  if (!hint || hint.action.kind !== "notes") {
-    assert.fail("expected a note hint");
-    return;
-  }
-  assert.deepEqual(hint.indexes, [0, 1]);
-  assert.deepEqual(hint.action.digits, [4, 7]);
-  const level1 = hintLevel1Text(hint);
-  assert.match(level1, /^呢幾格可用〔Naked Pair〕：〔.+〕。再撳提示睇要填咩／改筆記。$/);
-  assert.equal(level1.includes("4"), false);
-  assert.equal(level1.includes("7"), false);
-  assert.equal(level1.includes("9"), false);
-  assert.equal(hintLevel2Text(hint.action), "清／改呢啲候選：〔4、7〕。");
-  assert.equal(hintLevel2NotesText([4, 7]), "清／改呢啲候選：〔4、7〕。");
-});
-
-test("an elimination step without a candidate list is not turned into a fill", () => {
-  assert.equal(
-    hintFromStep({ row: 2, col: 2, value: 5, technique: "pointing_pair", explanation: "Digit 5." }),
-    null,
-  );
-  assert.equal(hintFromStep({ row: 0, col: 0, value: 1, technique: "guess" }), null);
-});
-
-test("hidden pair and box-line names stay on the technique map", () => {
-  const hidden = hintFromStep({
-    row: 3,
-    col: 4,
-    value: 0,
-    technique: "hidden_pair",
-    cells: [31, 32],
-    clear: [2, 6],
-  });
-  const boxLine = hintFromStep({
-    row: 1,
-    col: 1,
-    value: 0,
-    technique: "box_line_reduction",
-    cells: [10],
-    clear: [8],
-  });
-  assert.match(hintLevel1Text(hidden!), /〔Hidden Pair〕/);
-  assert.match(hintLevel1Text(boxLine!), /〔Box\/Line Reduction〕/);
-  assert.equal(hintLevel1Text(hidden!).includes("2"), false);
-  assert.equal(hintLevel1Text(boxLine!).includes("8"), false);
-});
-
-test("player-facing technique titles are Title Case English", () => {
-  assert.equal(techniqueTitle("naked_single"), "Naked Single");
-  assert.equal(techniqueTitle("hidden_single"), "Hidden Single");
-  assert.equal(techniqueTitle("naked_pair"), "Naked Pair");
-  assert.equal(techniqueTitle("hidden_pair"), "Hidden Pair");
-  assert.equal(techniqueTitle("pointing_pair"), "Pointing Pair");
-  assert.equal(techniqueTitle("box_line_reduction"), "Box/Line Reduction");
-  assert.equal(techniqueTitle("x_wing"), "X-Wing");
-  assert.equal(techniqueTitle("swordfish"), "Swordfish");
-  assert.equal(techniqueTitle("guess"), "Guess");
-});
-
-test("other techniques stay on two hint levels and never write", () => {
-  const fill = hintFromStep({ row: 4, col: 4, value: 8, technique: "other_fill" });
-  assert.ok(fill);
-  const level1 = hintLevel1Text(fill!);
-  assert.match(level1, /再撳提示睇要填咩／改筆記。$/);
-  assert.equal(level1.includes("8"), false);
-
-  let view: HintView = {
-    step: 1,
-    indexes: fill!.indexes,
-    technique: fill!.technique,
-    action: fill!.action,
-    note: level1,
-  };
-  assert.equal(hintButtonLabel(view.step, view.technique), "再提示");
-  assert.equal(hintButtonLabel(1, "naked_pair"), "再提示");
-  const second = pressHint(view, SOLUTION);
-  assert.equal(second.write, null);
-  assert.equal(second.view.step, 2);
-  assert.equal(second.view.note, "填入 〔8〕。");
-  assert.equal(hintButtonLabel(second.view.step, second.view.technique), "再提示");
-  const third = pressHint(second.view, SOLUTION);
-  assert.equal(third.write, null);
-  assert.equal(third.view.step, 2);
-  assert.equal(third.view.note, "填入 〔8〕。");
-
-  const pair = hintFromStep({
-    row: 0,
-    col: 0,
-    value: 9,
-    technique: "x_wing",
-    cells: [0, 8],
-    clear: [9],
-  });
-  assert.match(hintLevel1Text(pair!), /〔X-Wing〕：〔呢個數字喺兩行兩列交叉鎖定〕/);
-  view = { step: 1, indexes: pair!.indexes, technique: pair!.technique, action: pair!.action, note: hintLevel1Text(pair!) };
-  const notes = pressHint(view, SOLUTION);
-  assert.equal(notes.write, null);
-  assert.equal(notes.view.step, 2);
-  assert.equal(notes.view.note, "清／改呢啲候選：〔9〕。");
-  assert.equal(hintButtonLabel(4, "x_wing"), "再提示");
-  assert.equal(hintButtonLabel(1, "pointing_pair"), "再提示");
-});
-
-test("evidence peers are filled row, column, and box cells with a different digit", () => {
-  const values = Array<number>(81).fill(0);
-  values[1] = 2;
-  values[9] = 3;
-  values[10] = 5;
-  values[80] = 4;
-  const evidence = evidencePeers(values, 0, 5);
-  assert.deepEqual(evidence, [1, 9]);
-});
-
-test("naked single writes on the fourth press, when the button is already 填入", () => {
-  const grid = SOLUTION.slice();
-  grid[40] = 0;
-  const digit = SOLUTION[40];
-  const view = emptyHintView();
-  const first = pressHint(view, grid);
+  const digit = 8;
+  const first = pressHint(emptyHintView(), grid);
   assert.equal(first.write, null);
   assert.equal(first.view.step, 1);
-  assert.equal(first.view.technique, "naked_single");
+  assert.equal(first.view.technique, "last_free_cell");
   assert.deepEqual(first.view.indexes, [40]);
-  assert.equal(first.view.note, "這一格可用〔Naked Single〕：〔呢一格只剩一個候選〕。再撳提示睇下一步。");
-  assert.equal(first.view.note?.includes(String(digit)), false);
-  assert.equal(hintButtonLabel(1, "naked_single"), "提示");
-
-  const evidence = evidencePeers(grid, 40, digit);
-  assert.equal(evidence.includes(40), false);
-  assert.ok(evidence.length > 0);
-  for (const index of evidence) {
-    assert.notEqual(grid[index], 0);
-    assert.notEqual(grid[index], digit);
-  }
+  assert.equal(first.view.note?.includes("Last Free Cell"), true);
+  assert.equal(first.view.note?.includes("只剩這一格空白"), true);
+  assert.equal(first.view.note?.includes(`〔${digit}〕`), false);
+  assert.equal(hintButtonLabel(1, "last_free_cell"), "再提示");
 
   const second = pressHint(first.view, grid);
   assert.equal(second.write, null);
   assert.equal(second.view.step, 2);
-  assert.equal(second.view.note, `得 〔${digit}〕 未出現喺呢行／列／宮。`);
-  assert.deepEqual(second.view.indexes, [40, ...evidence]);
-  assert.equal(hintButtonLabel(2, "naked_single"), "再提示");
+  assert.equal(second.view.note, hintBeginnerReveal(digit));
+  assert.equal(second.view.note, `填入 〔${digit}〕。`);
+  assert.deepEqual(second.view.indexes, [40, 36, 37, 38, 39, 41, 42, 43, 44]);
+  assert.deepEqual(hintCellClasses("last_free_cell", 2, second.view.indexes, 40, 0), ["hint"]);
+  assert.deepEqual(hintCellClasses("last_free_cell", 2, second.view.indexes, 36, grid[36]), ["hint-evidence"]);
+  assert.equal(hintButtonLabel(2, "last_free_cell"), "填入");
 
-  const third = pressHint(second.view, grid);
-  assert.equal(third.write, null);
-  assert.equal(third.view.step, 3);
-  assert.deepEqual(third.view.indexes, [40]);
-  assert.equal(third.view.note, `填入 〔${digit}〕。`);
-  assert.equal(hintButtonLabel(3, "naked_single"), "填入");
-
-  const fill = pressHint(third.view, grid);
+  const fill = pressHint(second.view, grid);
   assert.deepEqual(fill.write, { index: 40, digit });
   assert.equal(fill.view.step, 0);
   assert.equal(fill.view.technique, null);
-  assert.equal(fill.view.note, null);
-  assert.deepEqual(fill.view.indexes, []);
-  assert.equal(hintButtonLabel(0, "naked_single"), "提示");
+  assert.equal(fill.clearNotes, null);
 });
 
-test("hidden single house prefers row, then column, then box", () => {
-  const rowOnly = Array<number>(81).fill(1);
-  rowOnly[40] = 0;
-  const row = hiddenSingleHouse(rowOnly, 40, 9);
-  assert.ok(row);
-  assert.equal(row.kind, "row");
-  assert.deepEqual(row.cells, [36, 37, 38, 39, 40, 41, 42, 43, 44]);
-
-  const column = Array<number>(81).fill(1);
-  column[40] = 0;
-  column[44] = 0;
-  const col = hiddenSingleHouse(column, 40, 9);
-  assert.ok(col);
-  assert.equal(col.kind, "col");
-  assert.deepEqual(col.cells, [4, 13, 22, 31, 40, 49, 58, 67, 76]);
-
-  const box = Array<number>(81).fill(1);
-  box[40] = 0;
-  box[44] = 0;
-  box[4] = 0;
-  const boxed = hiddenSingleHouse(box, 40, 9);
-  assert.ok(boxed);
-  assert.equal(boxed.kind, "box");
-  assert.deepEqual(boxed.cells, [30, 31, 32, 39, 40, 41, 48, 49, 50]);
-
-  assert.equal(hiddenSingleHouse(Array<number>(81).fill(0), 40, 9), null);
-  const filled = Array<number>(81).fill(0);
-  filled[40] = 9;
-  assert.equal(hiddenSingleHouse(filled, 40, 9), null);
-  assert.equal(hiddenSingleHouse(rowOnly, -1, 9), null);
-  assert.equal(hiddenSingleHouse(rowOnly, 40, 0), null);
+test("#2 Last Remaining Cell reveals the digit and its blockers on the second press", () => {
+  const hit = findLastRemainingCell(REMAINING);
+  assert.ok(hit);
+  const first = pressHint(emptyHintView(), REMAINING);
+  assert.equal(first.write, null);
+  assert.equal(first.view.technique, "last_remaining_cell");
+  assert.equal(first.view.note?.includes("多數位置已經排除"), true);
+  assert.equal(first.view.note?.includes(`〔${hit.digit}〕`), false);
+  const second = pressHint(first.view, REMAINING);
+  assert.equal(second.write, null);
+  assert.equal(second.view.note, `填入 〔${hit.digit}〕。`);
+  assert.equal(second.view.indexes[0], hit.index);
+  for (const cell of hit.evidence) assert.equal(second.view.indexes.includes(cell), true);
+  const fill = pressHint(second.view, REMAINING);
+  assert.deepEqual(fill.write, { index: hit.index, digit: hit.digit });
 });
 
-const HIDDEN_SINGLE_GRID = [
-  0, 0, 2, 0, 0, 0, 0, 0, 0, 7, 0, 1, 2, 0, 0, 3, 9, 4, 3, 0, 0, 0, 1, 7, 0, 0, 0, 0, 2, 0, 0, 0, 0, 7, 0, 0, 0, 0,
-  6, 0, 3, 1, 8, 2, 5, 5, 0, 0, 7, 6, 0, 4, 0, 9, 1, 4, 9, 6, 7, 3, 2, 5, 8, 8, 0, 0, 1, 2, 0, 0, 0, 0, 2, 0, 0, 0,
-  0, 4, 0, 0, 1,
-];
+test("#3 Last Possible Number writes on the third press and shows three-unit evidence", () => {
+  const hit = findLastPossibleNumber(POSSIBLE);
+  assert.ok(hit);
+  const first = pressHint(emptyHintView(), POSSIBLE);
+  assert.equal(first.view.technique, "last_possible_number");
+  assert.equal(first.view.note?.includes("睇吓呢行、列、宮已經用咗邊啲數"), true);
+  assert.equal(first.view.note?.includes("Last Possible Number"), true);
+  assert.equal(first.view.note?.includes(`〔${hit.digit}〕`), false);
+  const second = pressHint(first.view, POSSIBLE);
+  assert.equal(second.write, null);
+  assert.equal(second.view.note, `填入 〔${hit.digit}〕。`);
+  assert.equal(second.view.indexes[0], hit.index);
+  assert.ok(second.view.indexes.length > 1);
+  const fill = pressHint(second.view, POSSIBLE);
+  assert.deepEqual(fill.write, { index: hit.index, digit: hit.digit });
+  assert.equal(hintButtonLabel(2, "last_possible_number"), "填入");
+});
 
-test("hidden single writes on the fourth press and marks the house on the second", () => {
-  const target = 3;
-  const digit = 3;
-  const house = hiddenSingleHouse(HIDDEN_SINGLE_GRID, target, digit);
-  assert.ok(house);
-  assert.equal(house.kind, "row");
-  assert.deepEqual(house.cells, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
-  const evidence = house.cells.filter((index) => HIDDEN_SINGLE_GRID[index] === 0 && index !== target);
-  const filled = house.cells.filter((index) => HIDDEN_SINGLE_GRID[index] !== 0);
-  assert.deepEqual(evidence, [0, 1, 4, 5, 6, 7, 8]);
-  assert.deepEqual(filled, [2]);
+test("#4 Notes is the gate after #1–#3 miss and never fills a digit", () => {
+  const empty = Array<number>(81).fill(0);
+  const first = pressHint(emptyHintView(), empty);
+  assert.equal(first.write, null);
+  assert.equal(first.fillCandidates, false);
+  assert.equal(first.view.technique, "notes");
+  assert.equal(first.view.note, HINT_NOTES);
+  assert.equal(first.view.note?.includes("Notes In Sudoku"), true);
+  assert.equal(hintButtonLabel(1, "notes"), "填滿候選");
+  const second = pressHint(first.view, empty);
+  assert.equal(second.fillCandidates, true);
+  assert.equal(second.write, null);
+  assert.equal(second.clearNotes, null);
+  assert.equal(second.view.technique, null);
+  assert.equal(second.view.step, 0);
+});
 
-  const first = pressHint(emptyHintView(), HIDDEN_SINGLE_GRID);
+test("#5 Obvious Singles keeps the four-press fill", () => {
+  const grid = Array<number>(81).fill(0);
+  const notes = Array<number>(81).fill(0x3fe);
+  notes[0] = 1 << 5;
+  const first = pressHint(emptyHintView(), grid, notes);
   assert.equal(first.write, null);
   assert.equal(first.view.step, 1);
-  assert.equal(first.view.technique, "hidden_single");
-  assert.deepEqual(first.view.indexes, [target]);
-  assert.equal(
-    first.view.note,
-    "這一格可用〔Hidden Single〕：〔呢個數字喺呢一區只可以放喺呢一格〕。再撳提示睇要填咩／改筆記。",
-  );
-  assert.equal(first.view.note?.includes(String(digit)), false);
-  assert.equal(hintButtonLabel(1, "hidden_single"), "提示");
-  assert.deepEqual(hintCellClasses("hidden_single", 1, first.view.indexes, target, 0), ["hint"]);
+  assert.equal(first.view.technique, "obvious_singles");
+  assert.deepEqual(first.view.indexes, [0]);
+  assert.equal(first.view.note?.includes("Obvious Singles"), true);
+  assert.equal(first.view.note?.includes("呢一格只剩一個候選"), true);
+  assert.equal(first.view.note?.includes("〔5〕"), false);
+  assert.equal(hintButtonLabel(1, "obvious_singles"), "提示");
 
-  const second = pressHint(first.view, HIDDEN_SINGLE_GRID);
+  const second = pressHint(first.view, grid, notes);
   assert.equal(second.write, null);
   assert.equal(second.view.step, 2);
-  assert.equal(second.view.note, hintHiddenSingleText(digit, "row"));
-  assert.equal(second.view.note, "得 〔3〕 喺呢行只得這一格。");
-  assert.deepEqual(second.view.indexes, [target, 0, 1, 2, 4, 5, 6, 7, 8]);
-  assert.equal(hintButtonLabel(2, "hidden_single"), "再提示");
-  assert.deepEqual(hintCellClasses("hidden_single", 2, second.view.indexes, target, 0), ["hint-house", "hint"]);
-  for (const index of evidence) {
-    assert.equal(HIDDEN_SINGLE_GRID[index], 0);
-    assert.deepEqual(hintCellClasses("hidden_single", 2, second.view.indexes, index, 0), [
-      "hint-house",
-      "hint-evidence",
-    ]);
-  }
-  for (const index of filled) {
-    assert.notEqual(HIDDEN_SINGLE_GRID[index], 0);
-    assert.deepEqual(
-      hintCellClasses("hidden_single", 2, second.view.indexes, index, HIDDEN_SINGLE_GRID[index]),
-      ["hint-house"],
-    );
-  }
+  assert.equal(second.view.note, hintNakedMissingText(5));
+  assert.equal(hintButtonLabel(2, "obvious_singles"), "再提示");
 
-  const third = pressHint(second.view, HIDDEN_SINGLE_GRID);
+  const third = pressHint(second.view, grid, notes);
   assert.equal(third.write, null);
   assert.equal(third.view.step, 3);
-  assert.deepEqual(third.view.indexes, [target]);
-  assert.equal(third.view.note, `填入 〔${digit}〕。`);
-  assert.equal(hintButtonLabel(3, "hidden_single"), "填入");
-  assert.deepEqual(hintCellClasses("hidden_single", 3, third.view.indexes, target, 0), ["hint"]);
-  assert.deepEqual(hintCellClasses("hidden_single", 3, third.view.indexes, 0, 0), []);
-  assert.deepEqual(hintCellClasses("hidden_single", 3, third.view.indexes, 2, 2), []);
+  assert.equal(third.view.note, hintLevel2FillText(5));
+  assert.deepEqual(third.view.indexes, [0]);
+  assert.equal(hintButtonLabel(3, "obvious_singles"), "填入");
 
-  const fill = pressHint(third.view, HIDDEN_SINGLE_GRID);
-  assert.deepEqual(fill.write, { index: target, digit });
+  const fill = pressHint(third.view, grid, notes);
+  assert.deepEqual(fill.write, { index: 0, digit: 5 });
   assert.equal(fill.view.step, 0);
-  assert.equal(fill.view.technique, null);
-  assert.equal(fill.view.note, null);
-  assert.deepEqual(fill.view.indexes, []);
-  assert.equal(hintButtonLabel(0, "hidden_single"), "提示");
+  assert.equal(fill.clearNotes, null);
 });
 
-test("hidden single beat 2 names the column or box when that unit is the first unique one", () => {
-  const column = Array<number>(81).fill(1);
-  column[40] = 0;
-  column[44] = 0;
-  const colView: HintView = {
+test("#8 Hidden Singles keeps the four-press house mark", () => {
+  const grid = Array<number>(81).fill(0);
+  const notes = Array<number>(81).fill(0x3fe);
+  for (let index = 1; index < 9; index++) notes[index] &= ~(1 << 4);
+  const first = pressHint(emptyHintView(), grid, notes);
+  assert.equal(first.view.technique, "hidden_singles");
+  assert.deepEqual(first.view.indexes, [0]);
+  assert.equal(first.view.note?.includes("Hidden Singles"), true);
+  assert.equal(first.view.note?.includes("再撳提示睇下一步。"), true);
+  assert.equal(first.view.note?.includes("改筆記"), false);
+  assert.equal(first.view.note?.includes("〔4〕"), false);
+  assert.equal(hintButtonLabel(1, "hidden_singles"), "提示");
+
+  const second = pressHint(first.view, grid, notes);
+  assert.equal(second.write, null);
+  assert.equal(second.view.step, 2);
+  assert.equal(second.view.note, hintHiddenSingleText(4, "row"));
+  assert.deepEqual(second.view.indexes, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(hintCellClasses("hidden_singles", 2, second.view.indexes, 0, 0), ["hint-house", "hint"]);
+  assert.deepEqual(hintCellClasses("hidden_singles", 2, second.view.indexes, 3, 0), ["hint-house", "hint-evidence"]);
+  assert.equal(hintButtonLabel(2, "hidden_singles"), "再提示");
+
+  const third = pressHint(second.view, grid, notes);
+  assert.equal(third.write, null);
+  assert.equal(third.view.step, 3);
+  assert.equal(third.view.note, "填入 〔4〕。");
+  assert.equal(hintButtonLabel(3, "hidden_singles"), "填入");
+  assert.deepEqual(hintCellClasses("hidden_singles", 3, third.view.indexes, 0, 0), ["hint"]);
+
+  const fill = pressHint(third.view, grid, notes);
+  assert.deepEqual(fill.write, { index: 0, digit: 4 });
+  assert.equal(fill.view.technique, null);
+});
+
+test("#6/#9 clear candidates on the third press and never write a digit", () => {
+  const grid = Array<number>(81).fill(0);
+  const pairNotes = Array<number>(81).fill(0x3fe);
+  pairNotes[0] = (1 << 1) | (1 << 2);
+  pairNotes[1] = (1 << 1) | (1 << 2);
+  const pair = findObviousSet(grid, pairNotes, 2);
+  assert.ok(pair);
+  assert.deepEqual(pair.digits, [1, 2]);
+  const first = pressHint(emptyHintView(), grid, pairNotes);
+  assert.equal(first.view.technique, "obvious_pairs");
+  assert.deepEqual(first.view.indexes, pair.cells);
+  assert.equal(first.view.note?.includes("Obvious Pairs"), true);
+  assert.equal(first.view.note?.includes("再撳提示睇下一步。"), true);
+  assert.equal(first.view.note?.includes("改筆記"), false);
+  assert.equal(first.view.note?.includes("〔1"), false);
+  assert.equal(hintButtonLabel(1, "obvious_pairs"), "再提示");
+  const second = pressHint(first.view, grid, pairNotes);
+  assert.equal(second.write, null);
+  assert.equal(second.view.step, 2);
+  assert.equal(second.view.note, hintClearReveal("obvious_pairs", [1, 2], [1, 2]));
+  assert.equal(second.view.note, "同單位其他格刪走 〔1、2〕。");
+  assert.equal(hintButtonLabel(2, "obvious_pairs"), "清候選");
+  assert.notEqual(hintButtonLabel(2, "obvious_pairs"), "填入");
+  assert.equal(second.view.indexes.includes(2), true);
+  const clear = pressHint(second.view, grid, pairNotes);
+  assert.equal(clear.write, null);
+  assert.equal(clear.fillCandidates, false);
+  assert.deepEqual(clear.clearNotes?.digits, [1, 2]);
+  assert.equal(clear.clearNotes?.indexes.includes(0), false);
+  assert.equal(clear.clearNotes?.indexes.includes(2), true);
+  assert.equal(clear.view.step, 0);
+
+  const hiddenNotes = Array<number>(81).fill(0x3fe);
+  for (let index = 2; index < 9; index++) hiddenNotes[index] &= ~((1 << 1) | (1 << 2));
+  hiddenNotes[0] = (1 << 1) | (1 << 2) | (1 << 3);
+  hiddenNotes[1] = (1 << 1) | (1 << 2) | (1 << 4);
+  const hidden = findHiddenSet(grid, hiddenNotes, 2);
+  assert.ok(hidden);
+  const hiddenFirst = pressHint(emptyHintView(), grid, hiddenNotes);
+  assert.equal(hiddenFirst.view.technique, "hidden_pairs");
+  const hiddenSecond = pressHint(hiddenFirst.view, grid, hiddenNotes);
+  assert.equal(hiddenSecond.view.note, "呢兩格刪走其他候選，只留 〔1、2〕。");
+  assert.equal(hintButtonLabel(2, "hidden_pairs"), "清候選");
+  const hiddenClear = pressHint(hiddenSecond.view, grid, hiddenNotes);
+  assert.equal(hiddenClear.write, null);
+  assert.deepEqual(hiddenClear.clearNotes?.indexes, hidden.cells);
+  assert.equal(hintButtonLabel(3, "obvious_triples"), "清候選");
+  assert.equal(hintButtonLabel(3, "hidden_triples"), "清候選");
+});
+
+test("elimination hints can be stepped from a prepared triple view", () => {
+  const view: HintView = {
     step: 1,
-    indexes: [40],
-    technique: "hidden_single",
-    action: { kind: "fill", value: 9 },
+    indexes: [0, 1, 2],
+    technique: "obvious_triples",
+    action: { kind: "clear", digits: [2, 5, 7], indexes: [3, 4], keep: [2, 5, 7] },
     note: null,
   };
-  const colBeat = pressHint(colView, column);
-  assert.equal(colBeat.write, null);
-  assert.equal(colBeat.view.note, "得 〔9〕 喺呢列只得這一格。");
-  assert.equal(colBeat.view.indexes[0], 40);
-  assert.equal(colBeat.view.indexes.includes(44), false);
-  assert.deepEqual(hintCellClasses("hidden_single", 2, colBeat.view.indexes, 44, 0), []);
-  assert.deepEqual(hintCellClasses("hidden_single", 2, colBeat.view.indexes, 4, 1), ["hint-house"]);
-
-  const box = Array<number>(81).fill(1);
-  box[40] = 0;
-  box[44] = 0;
-  box[4] = 0;
-  const boxBeat = pressHint({ ...colView }, box);
-  assert.equal(boxBeat.view.note, "得 〔9〕 喺呢宮只得這一格。");
-  assert.equal(hintHiddenSingleText(9, "box"), "得 〔9〕 喺呢宮只得這一格。");
-  const boxCells = [30, 31, 32, 39, 40, 41, 48, 49, 50];
-  assert.deepEqual(
-    boxBeat.view.indexes.filter((index) => !boxCells.includes(index)),
-    [],
-  );
-  assert.equal(boxBeat.view.indexes.includes(44), false);
-  assert.equal(boxBeat.view.indexes.includes(4), false);
+  const second = pressHint(view, SOLUTION);
+  assert.equal(second.write, null);
+  assert.equal(second.view.note, "同單位其他格刪走 〔2、5、7〕。");
+  assert.deepEqual(hintCellClasses("obvious_triples", 2, second.view.indexes, 0, 0), ["hint"]);
+  assert.deepEqual(hintCellClasses("obvious_triples", 2, second.view.indexes, 3, 0), ["hint-evidence"]);
+  const clear = pressHint(second.view, SOLUTION);
+  assert.equal(clear.write, null);
+  assert.deepEqual(clear.clearNotes, { indexes: [3, 4], digits: [2, 5, 7] });
 });

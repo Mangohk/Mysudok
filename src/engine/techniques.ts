@@ -1,72 +1,122 @@
 /**
- * Human-style technique rater for 9×9 Sudoku.
+ * Human-style technique rater for 9×9 Sudoku (§11).
  *
- * Technique ids are openzeloku's `TechniqueName` strings
- * (https://github.com/mr-girff/openzeloku, MIT):
+ * Solving ids, in scan / apply order. Notes is a hint gate, not a rated step,
+ * so it is omitted here and sits between #3 and #5 in the hint scan.
  *
- * | Rank | id                   | Label              | Band |
- * | ---: | -------------------- | ------------------ | ---- |
- * |    1 | naked_single         | Naked Single       | 入門 |
- * |    2 | hidden_single        | Hidden Single      | 入門 |
- * |    3 | naked_pair           | Naked Pair         | 進階 |
- * |    4 | hidden_pair          | Hidden Pair        | 進階 |
- * |    5 | pointing_pair        | Pointing Pair      | 進階 |
- * |    6 | box_line_reduction   | Box/Line Reduction | 進階 |
+ * | Rank | id                    | Label                 | Band |
+ * | ---: | --------------------- | --------------------- | ---- |
+ * |    1 | last_free_cell        | Last Free Cell        | 初級 |
+ * |    2 | last_remaining_cell   | Last Remaining Cell   | 初級 |
+ * |    3 | last_possible_number  | Last Possible Number  | 初級 |
+ * |    5 | obvious_singles       | Obvious Singles       | 中級 |
+ * |    6 | obvious_pairs         | Obvious Pairs         | 中級 |
+ * |    7 | obvious_triples       | Obvious Triples       | 中級 |
+ * |    8 | hidden_singles        | Hidden Singles        | 中級 |
+ * |    9 | hidden_pairs          | Hidden Pairs          | 中級 |
+ * |   10 | hidden_triples        | Hidden Triples        | 中級 |
+ * |   11 | pointing_pairs        | Pointing Pairs        | 高級 |
+ * |   12 | pointing_triples      | Pointing Triples      | 高級 |
+ * |   13 | x_wing                | X-Wing                | 高級 |
+ * |   14 | y_wing                | Y-Wing                | 高級 |
+ * |   15 | swordfish             | Swordfish             | 高級 |
  *
- * Not applied (a puzzle that still has empty cells after the list above is
- * rejected — it would need a triple, x_wing, swordfish, or guess):
- * naked/hidden triple, x_wing, swordfish, guess.
+ * #1–#3 read placed digits only (no pencil marks). #5–#10 read the candidate
+ * mask, which starts as those placements and shrinks when a later technique
+ * eliminates. Obvious / hidden singles therefore fire only after an
+ * elimination has removed candidates a player could not see from the ink.
  *
- * openzeloku's own `rate()` only *detects* naked_pair / pointing_pair and then
- * labels the puzzle `guess`, because those branches do not eliminate
- * candidates. Singles placed here follow the same definitions as `nextHint`.
- * Pair, pointing, and box-line steps are real eliminations so the hardest
- * id is one the player would actually need.
+ * Legacy ids map forward: naked_single → obvious_singles, hidden_single →
+ * hidden_singles, naked_pair → obvious_pairs, hidden_pair → hidden_pairs.
+ * Pointing and box-line reduction are advanced-band thresholds. Box-line
+ * (claiming) is applied and recorded as Pointing Pairs or Pointing Triples.
+ *
+ * Seeds still come from openzeloku. This rater does not call `rate()`.
  */
 
 export const TECHNIQUE_ORDER = [
-  "naked_single",
-  "hidden_single",
-  "naked_pair",
-  "hidden_pair",
-  "pointing_pair",
-  "box_line_reduction",
+  "last_free_cell",
+  "last_remaining_cell",
+  "last_possible_number",
+  "obvious_singles",
+  "obvious_pairs",
+  "obvious_triples",
+  "hidden_singles",
+  "hidden_pairs",
+  "hidden_triples",
+  "pointing_pairs",
+  "pointing_triples",
+  "x_wing",
+  "y_wing",
+  "swordfish",
 ] as const;
 
 export type AppliedTechnique = (typeof TECHNIQUE_ORDER)[number];
 
+export type UnitKind = "row" | "col" | "box";
+
 export const TECHNIQUE_LABEL: Record<AppliedTechnique, string> = {
-  naked_single: "Naked Single",
-  hidden_single: "Hidden Single",
-  naked_pair: "Naked Pair",
-  hidden_pair: "Hidden Pair",
-  pointing_pair: "Pointing Pair",
-  box_line_reduction: "Box/Line Reduction",
+  last_free_cell: "Last Free Cell",
+  last_remaining_cell: "Last Remaining Cell",
+  last_possible_number: "Last Possible Number",
+  obvious_singles: "Obvious Singles",
+  obvious_pairs: "Obvious Pairs",
+  obvious_triples: "Obvious Triples",
+  hidden_singles: "Hidden Singles",
+  hidden_pairs: "Hidden Pairs",
+  hidden_triples: "Hidden Triples",
+  pointing_pairs: "Pointing Pairs",
+  pointing_triples: "Pointing Triples",
+  x_wing: "X-Wing",
+  y_wing: "Y-Wing",
+  swordfish: "Swordfish",
 };
 
 const RANK: Record<AppliedTechnique, number> = {
-  naked_single: 1,
-  hidden_single: 2,
-  naked_pair: 3,
-  hidden_pair: 4,
-  pointing_pair: 5,
-  box_line_reduction: 6,
+  last_free_cell: 1,
+  last_remaining_cell: 2,
+  last_possible_number: 3,
+  obvious_singles: 5,
+  obvious_pairs: 6,
+  obvious_triples: 7,
+  hidden_singles: 8,
+  hidden_pairs: 9,
+  hidden_triples: 10,
+  pointing_pairs: 11,
+  pointing_triples: 12,
+  x_wing: 13,
+  y_wing: 14,
+  swordfish: 15,
 };
+
+export type TechniqueBand = "初級" | "中級" | "高級";
 
 export function techniqueRank(id: AppliedTechnique): number {
   return RANK[id];
 }
 
-export function isIntroTechnique(id: AppliedTechnique): boolean {
-  return RANK[id] <= RANK.hidden_single;
+export function techniqueBand(id: AppliedTechnique): TechniqueBand {
+  const rank = RANK[id];
+  if (rank <= 3) return "初級";
+  if (rank <= 10) return "中級";
+  return "高級";
+}
+
+export function isBeginnerTechnique(id: AppliedTechnique): boolean {
+  return RANK[id] <= 3;
+}
+
+export function isIntermediateTechnique(id: AppliedTechnique): boolean {
+  return RANK[id] >= 5 && RANK[id] <= 10;
 }
 
 export function isAdvancedTechnique(id: AppliedTechnique): boolean {
-  return RANK[id] >= RANK.naked_pair && RANK[id] <= RANK.box_line_reduction;
+  return RANK[id] >= 11;
 }
 
 const N = 9;
 const CELLS = 81;
+const ALL_DIGITS = 0x3fe;
 
 export function rowOf(i: number): number {
   return Math.floor(i / N);
@@ -126,6 +176,80 @@ function digitOfSingle(mask: number): number {
   return 0;
 }
 
+export function maskDigits(mask: number): number[] {
+  const digits: number[] = [];
+  for (let digit = 1; digit <= 9; digit++) if ((mask & (1 << digit)) !== 0) digits.push(digit);
+  return digits;
+}
+
+function unitKind(unitIndex: number): UnitKind {
+  if (unitIndex < 9) return "row";
+  if (unitIndex < 18) return "col";
+  return "box";
+}
+
+function placementMask(values: readonly number[], index: number): number {
+  let used = 0;
+  for (const peer of PEERS[index] ?? []) {
+    const value = values[peer] ?? 0;
+    if (value >= 1 && value <= 9) used |= 1 << value;
+  }
+  return ALL_DIGITS & ~used;
+}
+
+function filledDifferentPeers(values: readonly number[], index: number, digit: number): number[] {
+  const evidence: number[] = [];
+  for (const peer of PEERS[index] ?? []) {
+    const value = values[peer] ?? 0;
+    if (value !== 0 && value !== digit) evidence.push(peer);
+  }
+  return evidence;
+}
+
+function filledHouses(values: readonly number[], index: number): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  const add = (cells: readonly number[]) => {
+    for (const cell of cells) {
+      if (cell === index || seen.has(cell)) continue;
+      seen.add(cell);
+      if ((values[cell] ?? 0) !== 0) out.push(cell);
+    }
+  };
+  add(ROWS[rowOf(index)] ?? []);
+  add(COLS[colOf(index)] ?? []);
+  add(BOXES[boxOf(index)] ?? []);
+  return out;
+}
+
+function blockers(values: readonly number[], unit: readonly number[], digit: number): number[] {
+  const seen = new Set<number>();
+  const evidence: number[] = [];
+  for (const cell of unit) {
+    if ((values[cell] ?? 0) !== 0) continue;
+    for (const peer of PEERS[cell] ?? []) {
+      if ((values[peer] ?? 0) !== digit || seen.has(peer)) continue;
+      seen.add(peer);
+      evidence.push(peer);
+    }
+  }
+  return evidence;
+}
+
+export interface FillSpot {
+  index: number;
+  digit: number;
+  unit: UnitKind | null;
+  evidence: number[];
+}
+
+export interface ClearSpot {
+  cells: number[];
+  digits: number[];
+  clearIndexes: number[];
+  keep: number[];
+}
+
 export interface Analysis {
   solved: boolean;
   /** Hardest technique that had to be used. Null when the grid is already full or unsolved. */
@@ -150,7 +274,7 @@ function place(values: number[], cand: Uint16Array, i: number, v: number): boole
   values[i] = v;
   cand[i] = 0;
   const bit = 1 << v;
-  for (const p of PEERS[i]) {
+  for (const p of PEERS[i] ?? []) {
     if (values[p] === v) return false;
     if ((cand[p] & bit) === 0) continue;
     cand[p] &= ~bit;
@@ -165,113 +289,237 @@ function initCandidates(values: number[]): Uint16Array | null {
     const v = values[i];
     if (v === 0) continue;
     if (v < 1 || v > 9) return null;
-    for (const p of PEERS[i]) {
+    for (const p of PEERS[i] ?? []) {
       if (values[p] === v) return null;
     }
   }
   for (let i = 0; i < CELLS; i++) {
     if (values[i] !== 0) continue;
-    let mask = 0;
-    for (let v = 1; v <= 9; v++) {
-      let ok = true;
-      for (const p of PEERS[i]) {
-        if (values[p] === v) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) mask |= 1 << v;
-    }
+    const mask = placementMask(values, i);
     cand[i] = mask;
     if (mask === 0) return null;
   }
   return cand;
 }
 
-function applyNakedSingle(values: number[], cand: Uint16Array): StepResult {
-  for (let i = 0; i < CELLS; i++) {
-    if (values[i] !== 0 || popcount(cand[i]) !== 1) continue;
-    const v = digitOfSingle(cand[i]);
-    return place(values, cand, i, v) ? "progress" : "contradiction";
+/** #1 Last Free Cell. A unit with a single blank. */
+export function findLastFreeCell(values: readonly number[]): FillSpot | null {
+  if (values.length !== CELLS) return null;
+  for (let u = 0; u < UNITS.length; u++) {
+    const unit = UNITS[u];
+    let empty = -1;
+    let emptyCount = 0;
+    let seen = 0;
+    for (const index of unit) {
+      const value = values[index] ?? 0;
+      if (value === 0) {
+        emptyCount++;
+        empty = index;
+      } else if (value >= 1 && value <= 9) {
+        seen |= 1 << value;
+      }
+    }
+    if (emptyCount !== 1 || empty < 0) continue;
+    const digit = digitOfSingle(ALL_DIGITS & ~seen);
+    if (digit === 0) continue;
+    return { index: empty, digit, unit: unitKind(u), evidence: unit.filter((index) => index !== empty) };
   }
-  return "stuck";
+  return null;
 }
 
-function applyHiddenSingle(values: number[], cand: Uint16Array): StepResult {
-  for (const unit of UNITS) {
-    for (let v = 1; v <= 9; v++) {
-      const bit = 1 << v;
+/** #2 Last Remaining Cell. One slot left for a digit, and the unit still has another blank. */
+export function findLastRemainingCell(values: readonly number[]): FillSpot | null {
+  if (values.length !== CELLS) return null;
+  for (let u = 0; u < UNITS.length; u++) {
+    const unit = UNITS[u];
+    const empty = unit.filter((index) => (values[index] ?? 0) === 0);
+    if (empty.length < 2) continue;
+    for (let digit = 1; digit <= 9; digit++) {
+      if (unit.some((index) => values[index] === digit)) continue;
+      const bit = 1 << digit;
+      const slots = empty.filter((index) => (placementMask(values, index) & bit) !== 0);
+      if (slots.length !== 1) continue;
+      return {
+        index: slots[0],
+        digit,
+        unit: unitKind(u),
+        evidence: blockers(values, unit, digit),
+      };
+    }
+  }
+  return null;
+}
+
+/** #3 Last Possible Number. A cell with one digit left from its row, column, and box. */
+export function findLastPossibleNumber(values: readonly number[]): FillSpot | null {
+  if (values.length !== CELLS) return null;
+  for (let index = 0; index < CELLS; index++) {
+    if ((values[index] ?? 0) !== 0) continue;
+    const mask = placementMask(values, index);
+    if (popcount(mask) !== 1) continue;
+    const digit = digitOfSingle(mask);
+    if (digit === 0) continue;
+    return { index, digit, unit: null, evidence: filledHouses(values, index) };
+  }
+  return null;
+}
+
+/**
+ * #5 Obvious Singles. One remaining candidate that placements alone do not force.
+ * `cand` is the player's notes, or the solver mask after eliminations.
+ */
+export function findObviousSingle(values: readonly number[], cand: ArrayLike<number>): FillSpot | null {
+  if (values.length !== CELLS) return null;
+  for (let index = 0; index < CELLS; index++) {
+    if ((values[index] ?? 0) !== 0) continue;
+    const mask = cand[index] ?? 0;
+    if (popcount(mask) !== 1) continue;
+    const legal = placementMask(values, index);
+    if (popcount(legal) <= 1) continue;
+    const digit = digitOfSingle(mask);
+    if (digit === 0 || (legal & (1 << digit)) === 0) continue;
+    return { index, digit, unit: null, evidence: filledDifferentPeers(values, index, digit) };
+  }
+  return null;
+}
+
+/** #8 Hidden Singles on a candidate mask, ignoring singles already visible from placements. */
+export function findHiddenSingle(values: readonly number[], cand: ArrayLike<number>): FillSpot | null {
+  if (values.length !== CELLS) return null;
+  for (let u = 0; u < UNITS.length; u++) {
+    const unit = UNITS[u];
+    for (let digit = 1; digit <= 9; digit++) {
+      const bit = 1 << digit;
       let count = 0;
       let found = -1;
       let placed = false;
-      for (const i of unit) {
-        if (values[i] === v) {
+      for (const index of unit) {
+        if ((values[index] ?? 0) === digit) {
           placed = true;
           break;
         }
-        if (values[i] === 0 && (cand[i] & bit) !== 0) {
+        if ((values[index] ?? 0) === 0 && ((cand[index] ?? 0) & bit) !== 0) {
           count++;
-          found = i;
+          found = index;
         }
       }
       if (placed || count !== 1 || found < 0) continue;
-      // A one-candidate cell is a naked single and is handled earlier.
-      if (popcount(cand[found]) === 1) continue;
-      return place(values, cand, found, v) ? "progress" : "contradiction";
+      if (popcount(cand[found] ?? 0) <= 1) continue;
+      if ((placementMask(values, found) & bit) === 0) continue;
+      const slots = unit.filter(
+        (index) => (values[index] ?? 0) === 0 && (placementMask(values, index) & bit) !== 0,
+      );
+      if (slots.length <= 1) continue;
+      return { index: found, digit, unit: unitKind(u), evidence: unit.slice() };
     }
   }
-  return "stuck";
+  return null;
 }
 
-function applyNakedPairs(values: number[], cand: Uint16Array): StepResult {
-  let changed = false;
+function combinations(length: number, size: number): number[][] {
+  const out: number[][] = [];
+  const current: number[] = [];
+  const walk = (start: number) => {
+    if (current.length === size) {
+      out.push(current.slice());
+      return;
+    }
+    for (let index = start; index < length; index++) {
+      current.push(index);
+      walk(index + 1);
+      current.pop();
+    }
+  };
+  if (size > 0 && length >= size) walk(0);
+  return out;
+}
+
+/** #6 / #7 Obvious pairs and triples. */
+export function findObviousSet(values: readonly number[], cand: ArrayLike<number>, size: 2 | 3): ClearSpot | null {
+  if (values.length !== CELLS) return null;
   for (const unit of UNITS) {
-    const cells = unit.filter((i) => values[i] === 0 && popcount(cand[i]) === 2);
-    for (let a = 0; a < cells.length; a++) {
-      for (let b = a + 1; b < cells.length; b++) {
-        const mask = cand[cells[a]];
-        if (mask !== cand[cells[b]]) continue;
-        for (const i of unit) {
-          if (i === cells[a] || i === cells[b] || values[i] !== 0) continue;
-          const next = cand[i] & ~mask;
-          if (next !== cand[i]) {
-            cand[i] = next;
-            changed = true;
-            if (next === 0) return "contradiction";
-          }
-        }
+    const cells = unit.filter((index) => {
+      if ((values[index] ?? 0) !== 0) return false;
+      const count = popcount(cand[index] ?? 0);
+      return count >= 2 && count <= size;
+    });
+    if (cells.length < size) continue;
+    for (const pick of combinations(cells.length, size)) {
+      const chosen = pick.map((index) => cells[index]);
+      let union = 0;
+      for (const index of chosen) union |= cand[index] ?? 0;
+      if (popcount(union) !== size) continue;
+      const clearIndexes: number[] = [];
+      for (const index of unit) {
+        if (chosen.includes(index) || (values[index] ?? 0) !== 0) continue;
+        if (((cand[index] ?? 0) & union) !== 0) clearIndexes.push(index);
       }
+      if (clearIndexes.length === 0) continue;
+      const digits = maskDigits(union);
+      return { cells: chosen, digits, clearIndexes, keep: digits };
     }
   }
-  return changed ? "progress" : "stuck";
+  return null;
 }
 
-function applyHiddenPairs(values: number[], cand: Uint16Array): StepResult {
-  let changed = false;
+/** #9 / #10 Hidden pairs and triples. */
+export function findHiddenSet(values: readonly number[], cand: ArrayLike<number>, size: 2 | 3): ClearSpot | null {
+  if (values.length !== CELLS) return null;
   for (const unit of UNITS) {
     const locs: number[][] = Array.from({ length: 10 }, () => []);
-    for (const i of unit) {
-      if (values[i] !== 0) continue;
-      for (let v = 1; v <= 9; v++) {
-        if ((cand[i] & (1 << v)) !== 0) locs[v].push(i);
-      }
+    for (const index of unit) {
+      if ((values[index] ?? 0) !== 0) continue;
+      const mask = cand[index] ?? 0;
+      for (let digit = 1; digit <= 9; digit++) if ((mask & (1 << digit)) !== 0) locs[digit].push(index);
     }
-    for (let a = 1; a <= 9; a++) {
-      if (locs[a].length !== 2) continue;
-      for (let b = a + 1; b <= 9; b++) {
-        if (locs[b].length !== 2) continue;
-        if (locs[a][0] !== locs[b][0] || locs[a][1] !== locs[b][1]) continue;
-        const keep = (1 << a) | (1 << b);
-        for (const cell of locs[a]) {
-          const next = cand[cell] & keep;
-          if (next !== cand[cell]) {
-            cand[cell] = next;
-            changed = true;
-            if (next === 0) return "contradiction";
-          }
-        }
-      }
+    const digits: number[] = [];
+    for (let digit = 1; digit <= 9; digit++) {
+      if (locs[digit].length >= 2 && locs[digit].length <= size) digits.push(digit);
     }
+    if (digits.length < size) continue;
+    for (const pick of combinations(digits.length, size)) {
+      const group = pick.map((index) => digits[index]);
+      const cells = new Set<number>();
+      for (const digit of group) for (const index of locs[digit]) cells.add(index);
+      if (cells.size !== size) continue;
+      const cellList = [...cells].sort((a, b) => a - b);
+      const keepMask = group.reduce((mask, digit) => mask | (1 << digit), 0);
+      const extras = new Set<number>();
+      let dirty = false;
+      for (const index of cellList) {
+        const remove = (cand[index] ?? 0) & ~keepMask;
+        if (remove === 0) continue;
+        dirty = true;
+        for (let digit = 1; digit <= 9; digit++) if ((remove & (1 << digit)) !== 0) extras.add(digit);
+      }
+      if (!dirty) continue;
+      return {
+        cells: cellList,
+        digits: [...extras].sort((a, b) => a - b),
+        clearIndexes: cellList,
+        keep: group.slice().sort((a, b) => a - b),
+      };
+    }
+  }
+  return null;
+}
+
+function applyFill(values: number[], cand: Uint16Array, spot: FillSpot | null): StepResult {
+  if (!spot) return "stuck";
+  return place(values, cand, spot.index, spot.digit) ? "progress" : "contradiction";
+}
+
+function applyClear(cand: Uint16Array, spot: ClearSpot | null): StepResult {
+  if (!spot) return "stuck";
+  let mask = 0;
+  for (const digit of spot.digits) mask |= 1 << digit;
+  if (mask === 0) return "stuck";
+  let changed = false;
+  for (const index of spot.clearIndexes) {
+    if ((cand[index] & mask) === 0) continue;
+    cand[index] &= ~mask;
+    changed = true;
+    if (cand[index] === 0) return "contradiction";
   }
   return changed ? "progress" : "stuck";
 }
@@ -285,31 +533,30 @@ function eliminateDigitOutside(
 ): StepResult {
   const host = new Set(hosts);
   let changed = false;
-  for (const i of line) {
-    if (host.has(i) || values[i] !== 0) continue;
-    if ((cand[i] & bit) === 0) continue;
-    cand[i] &= ~bit;
+  for (const index of line) {
+    if (host.has(index) || values[index] !== 0) continue;
+    if ((cand[index] & bit) === 0) continue;
+    cand[index] &= ~bit;
     changed = true;
-    if (cand[i] === 0) return "contradiction";
+    if (cand[index] === 0) return "contradiction";
   }
   return changed ? "progress" : "stuck";
 }
 
-function applyPointing(values: number[], cand: Uint16Array): StepResult {
+function applyPointing(values: number[], cand: Uint16Array, size: 2 | 3): StepResult {
   let changed = false;
   for (const box of BOXES) {
-    for (let v = 1; v <= 9; v++) {
-      const bit = 1 << v;
-      const cells = box.filter((i) => values[i] === 0 && (cand[i] & bit) !== 0);
-      if (cells.length < 2) continue;
+    for (let digit = 1; digit <= 9; digit++) {
+      const bit = 1 << digit;
+      const cells = box.filter((index) => values[index] === 0 && (cand[index] & bit) !== 0);
+      if (cells.length !== size) continue;
       const row = rowOf(cells[0]);
       const col = colOf(cells[0]);
-      if (cells.every((i) => rowOf(i) === row)) {
+      if (cells.every((index) => rowOf(index) === row)) {
         const step = eliminateDigitOutside(values, cand, box, ROWS[row], bit);
         if (step === "contradiction") return step;
         if (step === "progress") changed = true;
-      }
-      if (cells.every((i) => colOf(i) === col)) {
+      } else if (cells.every((index) => colOf(index) === col)) {
         const step = eliminateDigitOutside(values, cand, box, COLS[col], bit);
         if (step === "contradiction") return step;
         if (step === "progress") changed = true;
@@ -319,17 +566,18 @@ function applyPointing(values: number[], cand: Uint16Array): StepResult {
   return changed ? "progress" : "stuck";
 }
 
-function applyBoxLine(values: number[], cand: Uint16Array): StepResult {
+/** Box-line reduction. Recorded by the caller as pointing pairs or triples. */
+function applyClaiming(values: number[], cand: Uint16Array, size: 2 | 3): StepResult {
   let changed = false;
   const lines = [...ROWS, ...COLS];
   for (const line of lines) {
-    for (let v = 1; v <= 9; v++) {
-      const bit = 1 << v;
-      const cells = line.filter((i) => values[i] === 0 && (cand[i] & bit) !== 0);
-      if (cells.length < 2) continue;
-      const b = boxOf(cells[0]);
-      if (!cells.every((i) => boxOf(i) === b)) continue;
-      const step = eliminateDigitOutside(values, cand, line, BOXES[b], bit);
+    for (let digit = 1; digit <= 9; digit++) {
+      const bit = 1 << digit;
+      const cells = line.filter((index) => values[index] === 0 && (cand[index] & bit) !== 0);
+      if (cells.length !== size) continue;
+      const box = boxOf(cells[0]);
+      if (!cells.every((index) => boxOf(index) === box)) continue;
+      const step = eliminateDigitOutside(values, cand, line, BOXES[box], bit);
       if (step === "contradiction") return step;
       if (step === "progress") changed = true;
     }
@@ -337,16 +585,103 @@ function applyBoxLine(values: number[], cand: Uint16Array): StepResult {
   return changed ? "progress" : "stuck";
 }
 
-const ELIMINATORS: { id: AppliedTechnique; apply: typeof applyNakedPairs }[] = [
-  { id: "naked_pair", apply: applyNakedPairs },
-  { id: "hidden_pair", apply: applyHiddenPairs },
-  { id: "pointing_pair", apply: applyPointing },
-  { id: "box_line_reduction", apply: applyBoxLine },
-];
+function applyFish(values: number[], cand: Uint16Array, size: 2 | 3): StepResult {
+  let changed = false;
+  const strike = (base: number[], cover: number[], digitBit: number, byRow: boolean) => {
+    for (let other = 0; other < N; other++) {
+      if (base.includes(other)) continue;
+      for (const cross of cover) {
+        const index = byRow ? other * N + cross : cross * N + other;
+        if (values[index] !== 0 || (cand[index] & digitBit) === 0) continue;
+        cand[index] &= ~digitBit;
+        changed = true;
+        if (cand[index] === 0) return "contradiction" as const;
+      }
+    }
+    return "progress" as const;
+  };
+
+  for (let digit = 1; digit <= 9; digit++) {
+    const bit = 1 << digit;
+    const rowCols: number[][] = [];
+    const colRows: number[][] = [];
+    for (let row = 0; row < N; row++) {
+      const cols: number[] = [];
+      for (let col = 0; col < N; col++) {
+        const index = row * N + col;
+        if (values[index] === 0 && (cand[index] & bit) !== 0) cols.push(col);
+      }
+      rowCols.push(cols);
+    }
+    for (let col = 0; col < N; col++) {
+      const rows: number[] = [];
+      for (let row = 0; row < N; row++) {
+        const index = row * N + col;
+        if (values[index] === 0 && (cand[index] & bit) !== 0) rows.push(row);
+      }
+      colRows.push(rows);
+    }
+    const usableRows = rowCols.map((cols, row) => (cols.length >= 2 && cols.length <= size ? row : -1)).filter((row) => row >= 0);
+    for (const pick of combinations(usableRows.length, size)) {
+      const rows = pick.map((index) => usableRows[index]);
+      const cover = new Set<number>();
+      for (const row of rows) for (const col of rowCols[row]) cover.add(col);
+      if (cover.size !== size) continue;
+      const step = strike(rows, [...cover], bit, true);
+      if (step === "contradiction") return step;
+    }
+    const usableCols = colRows.map((rows, col) => (rows.length >= 2 && rows.length <= size ? col : -1)).filter((col) => col >= 0);
+    for (const pick of combinations(usableCols.length, size)) {
+      const cols = pick.map((index) => usableCols[index]);
+      const cover = new Set<number>();
+      for (const col of cols) for (const row of colRows[col]) cover.add(row);
+      if (cover.size !== size) continue;
+      const step = strike(cols, [...cover], bit, false);
+      if (step === "contradiction") return step;
+    }
+  }
+  return changed ? "progress" : "stuck";
+}
+
+function applyYWing(values: number[], cand: Uint16Array): StepResult {
+  const cells: number[] = [];
+  for (let index = 0; index < CELLS; index++) {
+    if (values[index] === 0 && popcount(cand[index]) === 2) cells.push(index);
+  }
+  let changed = false;
+  for (const pivot of cells) {
+    const pivotDigits = maskDigits(cand[pivot]);
+    if (pivotDigits.length !== 2) continue;
+    const [a, b] = pivotDigits;
+    for (const first of PEERS[pivot] ?? []) {
+      if (values[first] !== 0 || popcount(cand[first]) !== 2) continue;
+      const firstDigits = maskDigits(cand[first]);
+      const shared = firstDigits.filter((digit) => digit === a || digit === b);
+      if (shared.length !== 1) continue;
+      const extra = firstDigits.find((digit) => digit !== a && digit !== b);
+      if (extra === undefined) continue;
+      const other = shared[0] === a ? b : a;
+      const wing = (1 << other) | (1 << extra);
+      for (const second of PEERS[pivot] ?? []) {
+        if (second === first || values[second] !== 0 || cand[second] !== wing) continue;
+        const seen = new Set(PEERS[first] ?? []);
+        for (const target of PEERS[second] ?? []) {
+          if (target === pivot || target === first || target === second || !seen.has(target)) continue;
+          if (values[target] !== 0 || (cand[target] & (1 << extra)) === 0) continue;
+          cand[target] &= ~(1 << extra);
+          changed = true;
+          if (cand[target] === 0) return "contradiction";
+        }
+      }
+    }
+  }
+  return changed ? "progress" : "stuck";
+}
 
 /**
- * Solve `flat` using only singles, pairs, pointing, and box-line reduction.
+ * Solve `flat` with §11 techniques through Swordfish.
  * Returns `solved: false` when a harder technique or a guess would be required.
+ * Beginner steps are the #1–#3 detectors, never the old singles aliases.
  */
 export function analyze(flat: readonly number[]): Analysis {
   const empty: Analysis = {
@@ -358,7 +693,7 @@ export function analyze(flat: readonly number[]): Analysis {
   if (flat.length !== CELLS) return empty;
 
   const values = flat.slice();
-  if (values.every((v) => v !== 0)) {
+  if (values.every((value) => value !== 0)) {
     return { solved: true, maxTechnique: null, techniques: [], values };
   }
 
@@ -366,38 +701,41 @@ export function analyze(flat: readonly number[]): Analysis {
   if (!cand) return empty;
 
   const used = new Set<AppliedTechnique>();
-  for (let guard = 0; guard < 400; guard++) {
-    if (values.every((v) => v !== 0)) break;
+  const steps: { id: AppliedTechnique; apply: () => StepResult }[] = [
+    { id: "last_free_cell", apply: () => applyFill(values, cand, findLastFreeCell(values)) },
+    { id: "last_remaining_cell", apply: () => applyFill(values, cand, findLastRemainingCell(values)) },
+    { id: "last_possible_number", apply: () => applyFill(values, cand, findLastPossibleNumber(values)) },
+    { id: "obvious_singles", apply: () => applyFill(values, cand, findObviousSingle(values, cand)) },
+    { id: "obvious_pairs", apply: () => applyClear(cand, findObviousSet(values, cand, 2)) },
+    { id: "obvious_triples", apply: () => applyClear(cand, findObviousSet(values, cand, 3)) },
+    { id: "hidden_singles", apply: () => applyFill(values, cand, findHiddenSingle(values, cand)) },
+    { id: "hidden_pairs", apply: () => applyClear(cand, findHiddenSet(values, cand, 2)) },
+    { id: "hidden_triples", apply: () => applyClear(cand, findHiddenSet(values, cand, 3)) },
+    { id: "pointing_pairs", apply: () => applyPointing(values, cand, 2) },
+    { id: "pointing_triples", apply: () => applyPointing(values, cand, 3) },
+    { id: "pointing_pairs", apply: () => applyClaiming(values, cand, 2) },
+    { id: "pointing_triples", apply: () => applyClaiming(values, cand, 3) },
+    { id: "x_wing", apply: () => applyFish(values, cand, 2) },
+    { id: "y_wing", apply: () => applyYWing(values, cand) },
+    { id: "swordfish", apply: () => applyFish(values, cand, 3) },
+  ];
 
-    const naked = applyNakedSingle(values, cand);
-    if (naked === "contradiction") return { ...empty, values };
-    if (naked === "progress") {
-      used.add("naked_single");
-      continue;
-    }
-
-    const hidden = applyHiddenSingle(values, cand);
-    if (hidden === "contradiction") return { ...empty, values };
-    if (hidden === "progress") {
-      used.add("hidden_single");
-      continue;
-    }
-
-    let eliminated = false;
-    for (const step of ELIMINATORS) {
-      const result = step.apply(values, cand);
+  for (let guard = 0; guard < 900; guard++) {
+    if (values.every((value) => value !== 0)) break;
+    let acted = false;
+    for (const step of steps) {
+      const result = step.apply();
       if (result === "contradiction") return { ...empty, values };
-      if (result === "progress") {
-        used.add(step.id);
-        eliminated = true;
-        break;
-      }
+      if (result === "stuck") continue;
+      used.add(step.id);
+      acted = true;
+      break;
     }
-    if (!eliminated) break;
+    if (!acted) break;
     if (contradictory(values, cand)) return { ...empty, values };
   }
 
-  const solved = values.every((v) => v !== 0);
+  const solved = values.every((value) => value !== 0);
   if (!solved) return { ...empty, values };
 
   const techniques = TECHNIQUE_ORDER.filter((id) => used.has(id));

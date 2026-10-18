@@ -91,6 +91,7 @@ button { cursor: pointer; touch-action: manipulation; }
 }
 
 .choice.intro { background: #e5f2e8; color: #143c28; }
+.choice.mid { background: #f8efd4; color: #5c4310; }
 .choice.advanced { background: #fde7e0; color: #6e2618; }
 .choice:hover { transform: translateY(-1px); }
 .choice:focus-visible, .tools button:focus-visible, .pad button:focus-visible, .top-actions button:focus-visible, .done button:focus-visible, .confirm button:focus-visible, .error button:focus-visible {

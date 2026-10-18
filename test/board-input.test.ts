@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   armDigit,
+  clearCandidateDigits,
   conflictMask,
   createBoard,
   digitCount,
   emptyCellCount,
   fillAllCandidates,
   isDigitDone,
+  lastFreeEvidence,
+  lastPossibleEvidence,
+  lastRemainingEvidence,
   legalCandidateMask,
   maskDigits,
   placedADigit,
@@ -295,6 +299,53 @@ test("placedADigit is only a new fill", () => {
   assert.equal(placedADigit(before, [1, 4, 2]), true);
   assert.equal(placedADigit(before, [1, 0, 0]), false);
   assert.equal(placedADigit(before, [1, 0, 2]), false);
+});
+
+test("clearing hint candidates restores with one undo and does not write a digit", () => {
+  const board = createBoard(SOLUTION.map(() => 0), SOLUTION);
+  board.notes[2] = (1 << 1) | (1 << 2) | (1 << 5);
+  board.notes[3] = 1 << 1;
+  board.notes[80] = (1 << 1) | (1 << 9);
+  const values = board.values.slice();
+  assert.equal(clearCandidateDigits(board, [2, 3, 80, 2], [1, 2]), true);
+  assert.deepEqual(board.values, values);
+  assert.equal(board.notes[2], 1 << 5);
+  assert.equal(board.notes[3], 0);
+  assert.equal(board.notes[80], 1 << 9);
+  assert.equal(board.undo.length, 1);
+  undoCell(board);
+  assert.equal(board.notes[2], (1 << 1) | (1 << 2) | (1 << 5));
+  assert.equal(board.notes[3], 1 << 1);
+  assert.equal(board.notes[80], (1 << 1) | (1 << 9));
+  assert.equal(clearCandidateDigits(board, [2], [9]), false);
+  assert.equal(board.undo.length, 0);
+});
+
+test("beginner evidence helpers follow the §11 detectors", () => {
+  const grid = SOLUTION.slice();
+  grid[40] = 0;
+  assert.deepEqual(lastFreeEvidence(grid, 40), [36, 37, 38, 39, 41, 42, 43, 44]);
+  assert.deepEqual(lastFreeEvidence(grid, 0), []);
+
+  const remaining = [
+    6, 1, 0, 2, 0, 9, 0, 0, 7, 0, 8, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 3, 0, 0, 0, 0, 8, 0, 0, 9, 0, 7, 0, 0, 5, 2, 0, 0,
+    1, 9, 4, 0, 7, 8, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 1, 0, 0, 5, 0, 0, 5, 0, 0, 2, 0, 0, 0, 0, 0, 4, 0,
+    0, 7, 0, 6, 3,
+  ];
+  const blockers = lastRemainingEvidence(remaining, 4, 8);
+  assert.ok(blockers.length > 0);
+  assert.ok(blockers.every((index) => remaining[index] === 8));
+  assert.deepEqual(lastRemainingEvidence(remaining, 4, 3), []);
+
+  const possible = [
+    0, 0, 9, 0, 1, 3, 0, 0, 0, 5, 8, 0, 0, 0, 4, 3, 0, 0, 0, 0, 2, 8, 0, 9, 0, 4, 0, 0, 0, 0, 6, 8, 5, 0, 0, 0, 6, 5,
+    8, 9, 3, 7, 1, 2, 4, 0, 0, 0, 1, 4, 2, 5, 0, 0, 8, 0, 5, 3, 0, 0, 4, 0, 7, 9, 0, 4, 0, 0, 0, 0, 0, 3, 0, 0, 0, 4,
+    0, 0, 0, 5, 0,
+  ];
+  const houses = lastPossibleEvidence(possible, 35);
+  assert.ok(houses.length > 0);
+  assert.equal(houses.includes(35), false);
+  assert.deepEqual(lastPossibleEvidence(possible, 0), []);
 });
 
 test("重開 clears fills and the undo stack but keeps givens", () => {

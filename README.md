@@ -1,6 +1,6 @@
 # Mysudok
 
-A small static Sudoku game. Pick **入門** or **進階**, then fill a generated 9×9 puzzle. There is no account, no saved progress, and no backend.
+A small static Sudoku game. Pick **初級**, **中級**, or **高級**, then fill a generated 9×9 puzzle. There is no account, no saved progress, and no backend.
 
 Difficulty is the hardest solving technique a human-style solver has to use, after the puzzle is checked for a unique solution. It is not the number of clues.
 
@@ -44,17 +44,19 @@ npm run preview
 
 ## Play
 
-1. Home: choose **入門** or **進階**. The app shows「正在出題…」while it searches.
+1. Home: choose **初級**, **中級**, or **高級**. Each button has a short description and `data-difficulty`. The app shows「正在出題…」while it searches.
 2. Board, digit first: tap **1–9** to arm that digit (nothing is written yet). Cells that already show it are highlighted. Tap an empty cell to fill it, or, in **筆記**, to toggle that candidate. Tap the same digit again to disarm it. Tap a filled cell you wrote to erase it. Givens cannot be edited. After a fill, the digit stays armed so you can keep placing it, and that same digit is cleared from pencil notes in the same row, column, and box. **撤銷** undoes that fill and those note changes together. **填滿候選**, beside **筆記**, writes every legal candidate into the empty cells as pencil notes. That rewrite is one undo step, and the status line says「已填合法候選 · 可撤銷」. Each digit button shows how many of that digit are still missing (`9 −` the number already on the board). A digit turns green when it sits in all nine solution cells and none of those cells conflict. The header shows「仲剩 N 格」, the empty cells that were not givens. **新局** deals another puzzle. **重開** clears your fills on this puzzle. **返回** goes back to the difficulty choice.
-3. **提示** follows the next [openzeloku](https://github.com/mr-girff/openzeloku) `nextHint` step. Technique names in the header and in hints are Title Case English (Naked Single, Hidden Single, Naked Pair, Hidden Pair, Pointing Pair, Box/Line Reduction, X-Wing, Swordfish). Reason sentences stay Cantonese.
+3. **提示** scans local techniques #1 → #3, then the Notes gate, then #5 → #10. It does not use openzeloku `nextHint`. Names in the header and in hints are Title Case English. Reason sentences stay Cantonese. Hints for #11–#15 are not shown.
 
-   Naked Single and Hidden Single are four presses. Every other technique is two steps. The first tap highlights the cells in that step, names the technique, and does not reveal a digit or which candidates to clear. On a two-step technique the button becomes **再提示**. The second tap either says which digit to fill or which candidates to change, using only what that hint step returned.
+   **Last Free Cell**, **Last Remaining Cell**, and **Last Possible Number** are three presses. The first highlights the cell and the reason, with no digit. The second marks the evidence and the status says「填入 〔n〕。」, the same line Obvious Singles uses before a write. The button is then **填入**. The third press writes through the normal fill path (peer notes clear, one undo step) and leaves the hint.
 
-   Naked Single’s first tap highlights the target cell and names the technique; the button stays **提示**. The second tap states the digit and highlights that cell plus filled peers in the same row, column, and box whose value is a different digit (givens and player fills; pencil notes are not marked). The button becomes **再提示**. The third tap says to fill that digit and leaves only the target highlighted; the button becomes **填入**. The fourth tap writes the digit through the normal fill path (peer notes clear, one undo step) and leaves the hint.
+   **Notes In Sudoku** appears only after #1–#3 all miss and the board still has no pencil marks. The copy asks for notes. The hint button becomes **填滿候選** (writes every legal candidate, one undo step). **稍後** closes the hint without writing. The next hint then starts at #5.
 
-   Hidden Single uses those same four presses. The first tap highlights only the target cell and does not reveal the digit; the button stays **提示**. The second tap reveals the digit and the house (row, then column, then box — the first unit where that digit fits only in the target). Every cell in the house gets a light background, and the other empty cells in the house get a blue frame. Filled cells are not framed. The button becomes **再提示**. The third tap says to fill the digit and leaves only the target highlighted; the button is already **填入**. The fourth tap writes through the same fill path as Naked Single.
+   **Obvious Singles** and **Hidden Singles** stay on four presses. The first highlights only the target; the button stays **提示**. The second reveals the digit (Hidden Singles also paints the house: a light background on the unit, a blue frame on the other empty cells). The button becomes **再提示**. The third says to fill that digit and leaves only the target highlighted; the button is **填入**. The fourth writes.
 
-   If there is no next step, the status line says「解唔落。」. Arming a digit, undoing, filling a cell, **填滿候選**, **新局**, or **重開** leaves the hint.
+   **Obvious Pairs**, **Obvious Triples**, **Hidden Pairs**, and **Hidden Triples** are three presses and do not fill a digit. The first marks the pair or triple. The second says which candidates to delete. The button is **清候選**, not **填入**. The third clears those pencil notes in one undo step and leaves the hint. The status line says「已清候選 · 可撤銷」.
+
+   If nothing in #1–#10 applies, the status line says「解唔落。」. Arming a digit, undoing, filling a cell, **填滿候選**, **新局**, or **重開** leaves the hint.
 4. **⋯ → 檢查錯格** asks first, then draws an orange border on player fills that disagree with the solution. It does not change the board. Editing a cell, **撤銷**, **新局**, or **重開** clears those marks.
 5. A duplicate in a row, column, or box turns those cells light red. A finished board that matches the solution shows「完成」.
 
@@ -65,7 +67,7 @@ Play state stays in memory only.
 ## How a puzzle is generated
 
 ```ts
-type Difficulty = "入門" | "進階";
+type Difficulty = "初級" | "中級" | "高級";
 
 type Puzzle = {
   givens: number[][]; // 0 = empty
@@ -79,38 +81,45 @@ generate(d: Difficulty): Promise<Puzzle>;
 
 Implementation: [`src/engine/generate.ts`](src/engine/generate.ts).
 
-1. Ask [`openzeloku`](https://github.com/mr-girff/openzeloku) (MIT) for a 9×9 puzzle (`easy` for 入門, `hard` for 進階).
+1. Ask [`openzeloku`](https://github.com/mr-girff/openzeloku) (MIT) for a 9×9 seed (`easy` / `medium` / `expert`).
 2. Confirm a unique solution with `countSolutions(grid, 9, 2)`.
-3. Rate the grid with the techniques below. `maxTechnique` is the hardest one that had to be applied.
-4. 入門 keeps the puzzle only when `maxTechnique` is a single. 進階 keeps it only when `maxTechnique` is a pair, pointing, or box-line technique. For 進階, the attempt may also remove or restore clues from that unique puzzle, still checking uniqueness, until the rating lands in the 進階 band.
-5. Retry up to 40 times. If none match, generation throws and the UI says so.
+3. Rate the grid with local `analyze`. `maxTechnique` is the hardest step that had to be applied. This does not use openzeloku `rate()`.
+4. 初級 keeps the puzzle only when every step is #1–#3. 中級 keeps it when the hardest step is #5–#10. 高級 keeps it when at least one step is #11–#15. An attempt may add or remove clues from that unique puzzle until the rating lands in the band.
+5. Retry up to 40 seeds. If none match, generation throws and the UI says so.
 
 Clue count is only a side effect of carving a grid. The accept/reject decision is the technique rating.
 
 ### Technique map
 
-Ids are openzeloku's `TechniqueName` strings.
-
 | Rank | id | Name | 難度 |
 | ---: | --- | --- | --- |
-| 1 | `naked_single` | Naked Single | 入門 |
-| 2 | `hidden_single` | Hidden Single | 入門 |
-| 3 | `naked_pair` | Naked Pair | 進階 |
-| 4 | `hidden_pair` | Hidden Pair | 進階 |
-| 5 | `pointing_pair` | Pointing Pair | 進階 |
-| 6 | `box_line_reduction` | Box/Line Reduction | 進階 |
+| 1 | `last_free_cell` | Last Free Cell | 初級 |
+| 2 | `last_remaining_cell` | Last Remaining Cell | 初級 |
+| 3 | `last_possible_number` | Last Possible Number | 初級 |
+| 4 | `notes` | Notes In Sudoku | 中級 gate, not a solving step |
+| 5 | `obvious_singles` | Obvious Singles | 中級 |
+| 6 | `obvious_pairs` | Obvious Pairs | 中級 |
+| 7 | `obvious_triples` | Obvious Triples | 中級 |
+| 8 | `hidden_singles` | Hidden Singles | 中級 |
+| 9 | `hidden_pairs` | Hidden Pairs | 中級 |
+| 10 | `hidden_triples` | Hidden Triples | 中級 |
+| 11 | `pointing_pairs` | Pointing Pairs | 高級 |
+| 12 | `pointing_triples` | Pointing Triples | 高級 |
+| 13 | `x_wing` | X-Wing | 高級 |
+| 14 | `y_wing` | Y-Wing | 高級 |
+| 15 | `swordfish` | Swordfish | 高級 |
 
-入門: `maxTechnique` is only `naked_single` or `hidden_single`.
+初級: `maxTechnique` is only `last_free_cell`, `last_remaining_cell`, or `last_possible_number`. Those detectors read placed digits. They are not the old naked/hidden single aliases.
 
-進階: `maxTechnique` is at least a pair or a pointing / box-line step (`naked_pair`, `hidden_pair`, `pointing_pair`, or `box_line_reduction`). The puzzle must still be finished with those techniques.
+中級: `maxTechnique` is one of #5–#10. The solve used an intermediate technique and did not need #11+.
 
-Not used, and cause a reject: naked/hidden triple, `x_wing`, `swordfish`, `guess`.
+高級: the solve path includes at least one of #11–#15. Hint UI for those steps is out of scope. Box-line reduction is applied and counted as Pointing Pairs or Pointing Triples.
+
+Anything still unsolved after Swordfish is rejected.
 
 ### Why this wrapper does not trust `rate()` alone
 
-openzeloku's `rate()` detects `naked_pair` and `pointing_pair` as signals only. Those branches do not eliminate candidates, so any puzzle that singles cannot finish is also tagged `guess`. `hidden_pair` and `box_line_reduction` are declared ids but are not applied there.
-
-This app still uses openzeloku to generate boards, to prove uniqueness (`countSolutions`), and for hints (`nextHint`). The rating pass in [`src/engine/techniques.ts`](src/engine/techniques.ts) applies the same ids as real steps: place singles, then eliminate with naked pair, hidden pair, pointing, and box-line reduction. If cells remain, the puzzle needs a harder technique or a guess and is discarded. A rating is kept only when the filled grid matches `countSolutions`.
+openzeloku's `rate()` detects some patterns as signals only and tags anything past singles as `guess`. This app uses openzeloku to generate seeds and to prove uniqueness (`countSolutions`). Hints and difficulty both come from [`src/engine/techniques.ts`](src/engine/techniques.ts) and [`src/engine/hint.ts`](src/engine/hint.ts): place #1–#3 from the ink, then eliminate and place #5–#15 from the candidate mask. A rating is kept only when the filled grid matches `countSolutions`.
 
 ## Credits
 
@@ -118,4 +127,4 @@ Puzzle engine: [openzeloku](https://github.com/mr-girff/openzeloku) by Zeloku, M
 
 ## Out of scope
 
-Accounts, saved progress, skill trees, exams, and any server.
+Accounts, saved progress, skill trees, exams, any server, and hint UI for techniques #11–#15.
