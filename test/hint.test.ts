@@ -123,8 +123,8 @@ test("#1 Last Free Cell writes on the third press", () => {
   const second = pressHint(first.view, grid);
   assert.equal(second.write, null);
   assert.equal(second.view.step, 2);
-  assert.equal(second.view.note, hintBeginnerReveal("last_free_cell", digit));
-  assert.equal(second.view.note, `得 〔${digit}〕 未出現。`);
+  assert.equal(second.view.note, hintBeginnerReveal(digit));
+  assert.equal(second.view.note, `填入 〔${digit}〕。`);
   assert.deepEqual(second.view.indexes, [40, 36, 37, 38, 39, 41, 42, 43, 44]);
   assert.deepEqual(hintCellClasses("last_free_cell", 2, second.view.indexes, 40, 0), ["hint"]);
   assert.deepEqual(hintCellClasses("last_free_cell", 2, second.view.indexes, 36, grid[36]), ["hint-evidence"]);
@@ -147,7 +147,7 @@ test("#2 Last Remaining Cell reveals the digit and its blockers on the second pr
   assert.equal(first.view.note?.includes(`〔${hit.digit}〕`), false);
   const second = pressHint(first.view, REMAINING);
   assert.equal(second.write, null);
-  assert.equal(second.view.note?.includes(`〔${hit.digit}〕`), true);
+  assert.equal(second.view.note, `填入 〔${hit.digit}〕。`);
   assert.equal(second.view.indexes[0], hit.index);
   for (const cell of hit.evidence) assert.equal(second.view.indexes.includes(cell), true);
   const fill = pressHint(second.view, REMAINING);
@@ -164,7 +164,7 @@ test("#3 Last Possible Number writes on the third press and shows three-unit evi
   assert.equal(first.view.note?.includes(`〔${hit.digit}〕`), false);
   const second = pressHint(first.view, POSSIBLE);
   assert.equal(second.write, null);
-  assert.equal(second.view.note, `得 〔${hit.digit}〕 未出現喺呢行／列／宮。`);
+  assert.equal(second.view.note, `填入 〔${hit.digit}〕。`);
   assert.equal(second.view.indexes[0], hit.index);
   assert.ok(second.view.indexes.length > 1);
   const fill = pressHint(second.view, POSSIBLE);
@@ -230,6 +230,8 @@ test("#8 Hidden Singles keeps the four-press house mark", () => {
   assert.equal(first.view.technique, "hidden_singles");
   assert.deepEqual(first.view.indexes, [0]);
   assert.equal(first.view.note?.includes("Hidden Singles"), true);
+  assert.equal(first.view.note?.includes("再撳提示睇下一步。"), true);
+  assert.equal(first.view.note?.includes("改筆記"), false);
   assert.equal(first.view.note?.includes("〔4〕"), false);
   assert.equal(hintButtonLabel(1, "hidden_singles"), "提示");
 
@@ -266,6 +268,8 @@ test("#6/#9 clear candidates on the third press and never write a digit", () => 
   assert.equal(first.view.technique, "obvious_pairs");
   assert.deepEqual(first.view.indexes, pair.cells);
   assert.equal(first.view.note?.includes("Obvious Pairs"), true);
+  assert.equal(first.view.note?.includes("再撳提示睇下一步。"), true);
+  assert.equal(first.view.note?.includes("改筆記"), false);
   assert.equal(first.view.note?.includes("〔1"), false);
   assert.equal(hintButtonLabel(1, "obvious_pairs"), "再提示");
   const second = pressHint(first.view, grid, pairNotes);

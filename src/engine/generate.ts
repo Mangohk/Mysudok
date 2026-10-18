@@ -117,7 +117,8 @@ function emptyCount(grid: readonly number[]): number {
 async function carve(grid: number[], solution: readonly number[], difficulty: Difficulty): Promise<Puzzle | null> {
   let rates = 0;
   let budgetHit = false;
-  const rate = async (): Promise<Rated | null> => {
+  /** Local analyze plus uniqueness. Not openzeloku `rate()`. */
+  const localRate = async (): Promise<Rated | null> => {
     if (budgetHit) return null;
     rates++;
     if (rates > MAX_RATES) {
@@ -128,12 +129,12 @@ async function carve(grid: number[], solution: readonly number[], difficulty: Di
     return rateUnique(grid);
   };
 
-  let rated = await rate();
+  let rated = await localRate();
   if (!rated) {
     for (const index of shuffle(grid.flatMap((value, index) => (value === 0 ? [index] : [])))) {
       if (budgetHit) return null;
       grid[index] = solution[index];
-      const next = await rate();
+      const next = await localRate();
       if (budgetHit) return null;
       if (!next) continue;
       rated = next;
@@ -147,7 +148,7 @@ async function carve(grid: number[], solution: readonly number[], difficulty: Di
     for (const index of shuffle(grid.flatMap((value, cell) => (value === 0 ? [cell] : [])))) {
       if (emptyCount(grid) <= 1 || budgetHit) break;
       grid[index] = solution[index];
-      const next = await rate();
+      const next = await localRate();
       if (!next) {
         grid[index] = 0;
         if (budgetHit) return null;
@@ -162,7 +163,7 @@ async function carve(grid: number[], solution: readonly number[], difficulty: Di
     }
   }
 
-  const refreshed = await rate();
+  const refreshed = await localRate();
   if (budgetHit) return null;
   if (refreshed) rated = refreshed;
   if (inBand(rated.technique, difficulty)) return toPuzzle(grid, rated.solution, rated.technique);
@@ -172,7 +173,7 @@ async function carve(grid: number[], solution: readonly number[], difficulty: Di
     if (grid[index] === 0) continue;
     const backup = grid[index];
     grid[index] = 0;
-    const next = await rate();
+    const next = await localRate();
     if (!next || harderThan(next.technique, difficulty)) {
       grid[index] = backup;
       if (budgetHit) return null;

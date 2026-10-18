@@ -46,14 +46,6 @@ const REASONS: Record<string, string> = {
   hidden_triples: "三個數字喺呢一區只可以放喺三格",
 };
 
-const NEXT_LINE: Record<string, string> = {
-  hidden_singles: "再撳提示睇要填咩／改筆記。",
-  obvious_pairs: "再撳提示睇要刪邊啲候選。",
-  obvious_triples: "再撳提示睇要刪邊啲候選。",
-  hidden_pairs: "再撳提示睇要刪邊啲候選。",
-  hidden_triples: "再撳提示睇要刪邊啲候選。",
-};
-
 /** Shown when #1–#10 have no usable step. Advanced hints stay out of scope. */
 export const HINT_STUCK = "解唔落。";
 
@@ -141,7 +133,7 @@ export function hintLevel1Text(hint: StepHint): string {
   const name = techniqueTitle(hint.technique);
   const reason = REASONS[hint.technique] ?? "可以跟呢個技巧睇下一步";
   const where = hint.indexes.length <= 1 ? "這一格" : "呢幾格";
-  const next = NEXT_LINE[hint.technique] ?? "再撳提示睇下一步。";
+  const next = "再撳提示睇下一步。";
   return `${where}可用〔${name}〕：〔${reason}〕。${next}`;
 }
 
@@ -161,10 +153,9 @@ export function hintHiddenSingleText(value: number, kind: UnitKind): string {
   return `得 〔${value}〕 喺呢${HOUSE_WORD[kind]}只得這一格。`;
 }
 
-export function hintBeginnerReveal(technique: string, digit: number): string {
-  if (technique === "last_free_cell") return `得 〔${digit}〕 未出現。`;
-  if (technique === "last_remaining_cell") return `〔${digit}〕 已經出現喺標住嘅格，呢個單位只剩這一格。`;
-  return `得 〔${digit}〕 未出現喺呢行／列／宮。`;
+/** Status on the press before a #1–#3 write. Same line Obvious Singles shows before filling. */
+export function hintBeginnerReveal(digit: number): string {
+  return hintLevel2FillText(digit);
 }
 
 export function hintClearReveal(technique: string, digits: readonly number[], keep: readonly number[]): string {
@@ -289,7 +280,7 @@ function pressFill3(view: HintView, values: readonly number[], digit: number): H
     indexes,
     technique: view.technique,
     action: view.action,
-    note: hintBeginnerReveal(view.technique ?? "", digit),
+    note: hintBeginnerReveal(digit),
   });
 }
 
