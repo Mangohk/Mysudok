@@ -3,32 +3,29 @@ import {
   analyze,
   flatToRows,
   isAdvancedTechnique,
-  isIntroTechnique,
+  isBeginnerTechnique,
+  isIntermediateTechnique,
   sameFlat,
+  techniqueRank,
   type AppliedTechnique,
+  type TechniqueBand,
 } from "./techniques";
 
 /**
- * Technique band for `generate`. Ids are openzeloku `TechniqueName` values.
+ * Technique band for `generate`. Rating is local `analyze`, not openzeloku `rate()`.
  *
  * | 難度 | maxTechnique | 含義 |
  * | ---- | ------------ | ---- |
- * | 入門 | naked_single, hidden_single | 只用顯式／隱式唯一就可解完 |
- * | 進階 | naked_pair, hidden_pair, pointing_pair, box_line_reduction | 至少要用到數對、區塊指向或宮線排除其中一種，而且用這些技巧就解得完 |
+ * | 初級 | #1–#3 | 只用 Last Free Cell／Last Remaining Cell／Last Possible Number |
+ * | 中級 | #5–#10 | 會用到中級招，而且唔使 #11+ |
+ * | 高級 | #11–#15 | 至少一步指向、Wing 或魚形 |
  *
- * Rejected (never returned): puzzles that still need a triple, x_wing,
- * swordfish, or guess after those techniques. openzeloku `rate()` records
- * `guess` as soon as singles stall, because its pair checks do not eliminate
- * candidates — see the comment in `techniques.ts`.
- *
- * Each attempt asks openzeloku for a unique puzzle, then `countSolutions`
- * confirms uniqueness. 進階 may also remove or restore clues from that
- * puzzle while uniqueness holds, and keeps the grid only when the hardest
- * applied technique sits in the 進階 band. At most {@link MAX_ATTEMPTS}
- * attempts.
+ * openzeloku supplies a unique seed. Each attempt may add or remove clues
+ * while uniqueness holds, and keeps the grid only when `maxTechnique` sits
+ * in the requested band. At most {@link MAX_ATTEMPTS} seeds.
  */
 
-export type Difficulty = "入門" | "進階";
+export type Difficulty = TechniqueBand;
 
 export interface Puzzle {
   /** 0 = empty. */
@@ -39,6 +36,7 @@ export interface Puzzle {
 }
 
 export const MAX_ATTEMPTS = 40;
+const MAX_RATES = 80;
 
 export class GenerationFailedError extends Error {
   readonly difficulty: Difficulty;
@@ -72,6 +70,25 @@ interface Rated {
   solution: number[];
 }
 
+const BAND: Record<Difficulty, { min: number; max: number }> = {
+  初級: { min: 1, max: 3 },
+  中級: { min: 5, max: 10 },
+  高級: { min: 11, max: 15 },
+};
+
+function inBand(id: AppliedTechnique, difficulty: Difficulty): boolean {
+  const rank = techniqueRank(id);
+  return rank >= BAND[difficulty].min && rank <= BAND[difficulty].max;
+}
+
+function easierThan(id: AppliedTechnique, difficulty: Difficulty): boolean {
+  return techniqueRank(id) < BAND[difficulty].min;
+}
+
+function harderThan(id: AppliedTechnique, difficulty: Difficulty): boolean {
+  return techniqueRank(id) > BAND[difficulty].max;
+}
+
 /** Unique solution via openzeloku, and solvable inside the technique list we apply. */
 function rateUnique(grid: readonly number[]): Rated | null {
   const counted = countSolutions(grid.slice(), 9, 2);
@@ -91,71 +108,105 @@ function toPuzzle(grid: readonly number[], solution: readonly number[], techniqu
   };
 }
 
-function tryIntro(): Puzzle | null {
-  const raw = ozGenerate({ size: 9, difficulty: "easy" });
-  const rated = rateUnique(raw.grid);
-  if (!rated || !isIntroTechnique(rated.technique)) return null;
-  if (!sameFlat(rated.solution, raw.solution)) return null;
-  return toPuzzle(raw.grid, rated.solution, rated.technique);
+function emptyCount(grid: readonly number[]): number {
+  let count = 0;
+  for (const value of grid) if (value === 0) count++;
+  return count;
 }
 
-/**
- * Remove clues while the grid stays unique and solvable without triples / fish / guess.
- * Stop at the first grid whose hardest technique is in the 進階 band.
- */
-function digToAdvanced(grid: number[], solution: readonly number[]): Puzzle | null {
-  const clues = shuffle(grid.flatMap((value, index) => (value !== 0 ? [index] : [])));
-  for (const index of clues) {
+async function carve(grid: number[], solution: readonly number[], difficulty: Difficulty): Promise<Puzzle | null> {
+  let rates = 0;
+  let budgetHit = false;
+  const rate = async (): Promise<Rated | null> => {
+    if (budgetHit) return null;
+    rates++;
+    if (rates > MAX_RATES) {
+      budgetHit = true;
+      return null;
+    }
+    if (rates % 5 === 0) await yieldToUi();
+    return rateUnique(grid);
+  };
+
+  let rated = await rate();
+  if (!rated) {
+    for (const index of shuffle(grid.flatMap((value, index) => (value === 0 ? [index] : [])))) {
+      if (budgetHit) return null;
+      grid[index] = solution[index];
+      const next = await rate();
+      if (budgetHit) return null;
+      if (!next) continue;
+      rated = next;
+      break;
+    }
+  }
+  if (!rated || emptyCount(grid) === 0) return null;
+  if (inBand(rated.technique, difficulty)) return toPuzzle(grid, rated.solution, rated.technique);
+
+  if (harderThan(rated.technique, difficulty)) {
+    for (const index of shuffle(grid.flatMap((value, cell) => (value === 0 ? [cell] : [])))) {
+      if (emptyCount(grid) <= 1 || budgetHit) break;
+      grid[index] = solution[index];
+      const next = await rate();
+      if (!next) {
+        grid[index] = 0;
+        if (budgetHit) return null;
+        continue;
+      }
+      if (inBand(next.technique, difficulty)) return toPuzzle(grid, next.solution, next.technique);
+      if (easierThan(next.technique, difficulty)) {
+        grid[index] = 0;
+        continue;
+      }
+      rated = next;
+    }
+  }
+
+  const refreshed = await rate();
+  if (budgetHit) return null;
+  if (refreshed) rated = refreshed;
+  if (inBand(rated.technique, difficulty)) return toPuzzle(grid, rated.solution, rated.technique);
+  if (!easierThan(rated.technique, difficulty)) return null;
+
+  for (const index of shuffle(grid.flatMap((value, cell) => (value !== 0 ? [cell] : [])))) {
     if (grid[index] === 0) continue;
     const backup = grid[index];
     grid[index] = 0;
-    const rated = rateUnique(grid);
-    if (!rated || !sameFlat(rated.solution, solution)) {
+    const next = await rate();
+    if (!next || harderThan(next.technique, difficulty)) {
       grid[index] = backup;
+      if (budgetHit) return null;
       continue;
     }
-    if (isIntroTechnique(rated.technique)) continue;
-    return toPuzzle(grid, rated.solution, rated.technique);
+    if (inBand(next.technique, difficulty)) return toPuzzle(grid, next.solution, next.technique);
+    rated = next;
   }
   return null;
 }
 
-function tryAdvanced(): Puzzle | null {
-  const raw = ozGenerate({ size: 9, difficulty: "hard" });
-  const solution = raw.solution;
-  const grid = raw.grid.slice();
-  const direct = rateUnique(grid);
+const SEED: Record<Difficulty, "easy" | "medium" | "hard" | "expert"> = {
+  初級: "easy",
+  中級: "medium",
+  高級: "expert",
+};
 
-  if (direct && sameFlat(direct.solution, solution) && isAdvancedTechnique(direct.technique)) {
-    return toPuzzle(grid, direct.solution, direct.technique);
-  }
-
-  if (!direct) {
-    const holes = shuffle(grid.flatMap((value, index) => (value === 0 ? [index] : [])));
-    let softened = false;
-    for (const index of holes) {
-      grid[index] = solution[index];
-      const rated = rateUnique(grid);
-      if (!rated || !sameFlat(rated.solution, solution)) continue;
-      if (isAdvancedTechnique(rated.technique)) return toPuzzle(grid, rated.solution, rated.technique);
-      if (isIntroTechnique(rated.technique)) {
-        softened = true;
-        break;
-      }
-    }
-    if (!softened) return null;
-  } else if (!sameFlat(direct.solution, solution) || !isIntroTechnique(direct.technique)) {
-    return null;
-  }
-
-  return digToAdvanced(grid, solution);
+async function tryDifficulty(difficulty: Difficulty): Promise<Puzzle | null> {
+  const raw = ozGenerate({ size: 9, difficulty: SEED[difficulty] });
+  const counted = countSolutions(raw.grid.slice(), 9, 2);
+  if (!counted.unique || !counted.solution) return null;
+  return carve(raw.grid.slice(), counted.solution, difficulty);
 }
 
 export async function generate(difficulty: Difficulty): Promise<Puzzle> {
   await yieldToUi();
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const puzzle = difficulty === "入門" ? tryIntro() : tryAdvanced();
-    if (puzzle) return puzzle;
+    const puzzle = await tryDifficulty(difficulty);
+    if (puzzle) {
+      const technique = puzzle.maxTechnique as AppliedTechnique;
+      if (difficulty === "初級" && isBeginnerTechnique(technique)) return puzzle;
+      if (difficulty === "中級" && isIntermediateTechnique(technique)) return puzzle;
+      if (difficulty === "高級" && isAdvancedTechnique(technique)) return puzzle;
+    }
     await yieldToUi();
   }
   throw new GenerationFailedError(difficulty, MAX_ATTEMPTS);

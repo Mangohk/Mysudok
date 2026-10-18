@@ -1,13 +1,28 @@
-import { nextHint, type TechniqueName } from "openzeloku";
-import { evidencePeers, hiddenSingleHouse, type HiddenSingleHouse } from "../board-input";
-import { TECHNIQUE_LABEL, type AppliedTechnique } from "./techniques";
+import { lastFreeEvidence, lastPossibleEvidence, lastRemainingEvidence } from "../board-input";
+import {
+  findHiddenSet,
+  findHiddenSingle,
+  findLastFreeCell,
+  findLastPossibleNumber,
+  findLastRemainingCell,
+  findObviousSet,
+  findObviousSingle,
+  TECHNIQUE_LABEL,
+  type AppliedTechnique,
+  type ClearSpot,
+  type FillSpot,
+  type UnitKind,
+} from "./techniques";
 
 /**
- * One teaching step from openzeloku `nextHint`.
- * A placement uses `value` from that step. An elimination uses only the
- * candidate list the step itself carries. Neither path reads the solution.
+ * One teaching step from the local scan.
+ * Placements carry `value`. Eliminations carry the digits to clear.
+ * Neither path reads the solution or openzeloku `nextHint`.
  */
-export type HintAction = { kind: "fill"; value: number } | { kind: "notes"; digits: number[] };
+export type HintAction =
+  | { kind: "fill"; value: number; evidence: number[]; unit: UnitKind | null }
+  | { kind: "clear"; digits: number[]; indexes: number[]; keep: number[] }
+  | { kind: "notes" };
 
 export interface StepHint {
   indexes: number[];
@@ -15,114 +30,169 @@ export interface StepHint {
   action: HintAction;
 }
 
-/** Library steps are placements unless they name an elimination technique. */
-const ELIMINATION = new Set<TechniqueName>([
-  "naked_pair",
-  "hidden_pair",
-  "pointing_pair",
-  "box_line_reduction",
-  "x_wing",
-  "swordfish",
-]);
-
-const EXTRA_LABEL: Record<string, string> = {
-  x_wing: "X-Wing",
-  swordfish: "Swordfish",
-  guess: "Guess",
-};
+const FILL3 = new Set(["last_free_cell", "last_remaining_cell", "last_possible_number"]);
+const FILL4 = new Set(["obvious_singles", "hidden_singles"]);
+const CLEAR3 = new Set(["obvious_pairs", "obvious_triples", "hidden_pairs", "hidden_triples"]);
 
 const REASONS: Record<string, string> = {
-  naked_single: "呢一格只剩一個候選",
-  hidden_single: "呢個數字喺呢一區只可以放喺呢一格",
-  naked_pair: "兩格一齊只剩兩個候選",
-  hidden_pair: "兩個數字喺呢一區只可以放喺兩格",
-  pointing_pair: "呢個數字喺宮入面只排成一行或一列",
-  box_line_reduction: "呢行或呢列嘅數字都擠喺同一個宮",
-  x_wing: "呢個數字喺兩行兩列交叉鎖定",
-  swordfish: "呢個數字喺三行三列交叉鎖定",
+  last_free_cell: "只剩這一格空白",
+  last_remaining_cell: "呢個單位仲欠一個數，多數位置已經排除",
+  last_possible_number: "睇吓呢行、列、宮已經用咗邊啲數",
+  obvious_singles: "呢一格只剩一個候選",
+  obvious_pairs: "兩格一齊只剩兩個候選",
+  obvious_triples: "三格一齊只剩三個候選",
+  hidden_singles: "呢個數字喺呢一區只可以放喺呢一格",
+  hidden_pairs: "兩個數字喺呢一區只可以放喺兩格",
+  hidden_triples: "三個數字喺呢一區只可以放喺三格",
 };
 
-/** Shown when `nextHint` has no usable step. */
+const NEXT_LINE: Record<string, string> = {
+  hidden_singles: "再撳提示睇要填咩／改筆記。",
+  obvious_pairs: "再撳提示睇要刪邊啲候選。",
+  obvious_triples: "再撳提示睇要刪邊啲候選。",
+  hidden_pairs: "再撳提示睇要刪邊啲候選。",
+  hidden_triples: "再撳提示睇要刪邊啲候選。",
+};
+
+/** Shown when #1–#10 have no usable step. Advanced hints stay out of scope. */
 export const HINT_STUCK = "解唔落。";
 
-export interface HintPayload {
-  row: number;
-  col: number;
-  value: number;
-  technique: string;
-  explanation?: string;
-  /** Cells involved, in addition to row/col, when the library step lists them. */
-  cells?: readonly number[];
-  /** Digits a note-type step says to clear. Absent on placement steps. */
-  clear?: readonly number[];
-}
+export const HINT_NOTES =
+  "可用〔Notes In Sudoku〕：〔初級招用盡，先加筆記先可以睇下一步〕。撳「填滿候選」寫低每格候選，或者「稍後」。";
 
 export function techniqueTitle(id: string): string {
-  return TECHNIQUE_LABEL[id as AppliedTechnique] ?? EXTRA_LABEL[id] ?? id;
+  if (id === "notes") return "Notes In Sudoku";
+  return TECHNIQUE_LABEL[id as AppliedTechnique] ?? id;
 }
 
-export function findHint(flat: readonly number[]): StepHint | null {
-  const hint = nextHint(flat.slice(), 9);
-  if (!hint) return null;
-  return hintFromStep(hint);
+/** True once any empty cell carries a pencil mark. The notes gate is only for a blank pad. */
+export function notesReady(values: readonly number[], notes: readonly number[] | undefined): boolean {
+  if (!notes) return false;
+  for (let index = 0; index < values.length; index++) {
+    if (values[index] !== 0) continue;
+    if ((notes[index] ?? 0) !== 0) return true;
+  }
+  return false;
+}
+
+function fillHint(technique: string, spot: FillSpot): StepHint {
+  return {
+    indexes: [spot.index],
+    technique,
+    action: {
+      kind: "fill",
+      value: spot.digit,
+      evidence: spot.evidence.filter((index) => index !== spot.index),
+      unit: spot.unit,
+    },
+  };
+}
+
+function clearHint(technique: string, spot: ClearSpot): StepHint {
+  return {
+    indexes: spot.cells.slice(),
+    technique,
+    action: {
+      kind: "clear",
+      digits: spot.digits.slice(),
+      indexes: spot.clearIndexes.slice(),
+      keep: spot.keep.slice(),
+    },
+  };
 }
 
 /**
- * Turn one library step into L1/L2 content.
- * Elimination techniques never become 「填入 〔n〕」 from `value` alone: the
- * candidate list has to be on the step. `guess` is not a teaching step.
+ * Local hint scan. #1 → #2 → #3, then the Notes gate, then #5 → #10.
+ * Does not call openzeloku `nextHint`. #11–#15 are generation thresholds only.
  */
-export function hintFromStep(hint: HintPayload): StepHint | null {
-  if (hint.technique === "guess") return null;
-  const indexes = cellsOf(hint);
-  if (indexes.length === 0) return null;
-  if (ELIMINATION.has(hint.technique as TechniqueName)) {
-    const digits = digitsToClear(hint);
-    if (!digits) return null;
-    return { indexes, technique: hint.technique, action: { kind: "notes", digits } };
+export function findHint(flat: readonly number[], notes?: readonly number[]): StepHint | null {
+  if (flat.length !== 81 || flat.every((value) => value !== 0)) return null;
+
+  const free = findLastFreeCell(flat);
+  if (free) return fillHint("last_free_cell", free);
+  const remaining = findLastRemainingCell(flat);
+  if (remaining) return fillHint("last_remaining_cell", remaining);
+  const possible = findLastPossibleNumber(flat);
+  if (possible) return fillHint("last_possible_number", possible);
+
+  if (!notesReady(flat, notes)) {
+    return { indexes: [], technique: "notes", action: { kind: "notes" } };
   }
-  if (Number.isInteger(hint.value) && hint.value >= 1 && hint.value <= 9) {
-    return { indexes, technique: hint.technique, action: { kind: "fill", value: hint.value } };
-  }
-  const digits = digitsToClear(hint);
-  if (!digits) return null;
-  return { indexes, technique: hint.technique, action: { kind: "notes", digits } };
+
+  const masks = notes ?? [];
+  const obvious = findObviousSingle(flat, masks);
+  if (obvious) return fillHint("obvious_singles", obvious);
+  const pair = findObviousSet(flat, masks, 2);
+  if (pair) return clearHint("obvious_pairs", pair);
+  const triple = findObviousSet(flat, masks, 3);
+  if (triple) return clearHint("obvious_triples", triple);
+  const hidden = findHiddenSingle(flat, masks);
+  if (hidden) return fillHint("hidden_singles", hidden);
+  const hiddenPair = findHiddenSet(flat, masks, 2);
+  if (hiddenPair) return clearHint("hidden_pairs", hiddenPair);
+  const hiddenTriple = findHiddenSet(flat, masks, 3);
+  if (hiddenTriple) return clearHint("hidden_triples", hiddenTriple);
+  return null;
 }
 
 /** L1 names the technique and the reason. It does not reveal a digit or a clear-list. */
 export function hintLevel1Text(hint: StepHint): string {
+  if (hint.technique === "notes") return HINT_NOTES;
   const name = techniqueTitle(hint.technique);
   const reason = REASONS[hint.technique] ?? "可以跟呢個技巧睇下一步";
-  const where = hint.technique === "naked_single" || hint.indexes.length <= 1 ? "這一格" : "呢幾格";
-  const next =
-    hint.technique === "naked_single" ? "再撳提示睇下一步。" : "再撳提示睇要填咩／改筆記。";
+  const where = hint.indexes.length <= 1 ? "這一格" : "呢幾格";
+  const next = NEXT_LINE[hint.technique] ?? "再撳提示睇下一步。";
   return `${where}可用〔${name}〕：〔${reason}〕。${next}`;
 }
 
-/** Naked Single beat 2: the missing digit, without listing peer cells. */
+/** Obvious Singles beat 2: the missing digit, without listing peer cells. */
 export function hintNakedMissingText(value: number): string {
   return `得 〔${value}〕 未出現喺呢行／列／宮。`;
 }
 
-const HOUSE_WORD: Record<HiddenSingleHouse["kind"], string> = {
+const HOUSE_WORD: Record<UnitKind, string> = {
   row: "行",
   col: "列",
   box: "宮",
 };
 
-/** Hidden Single beat 2: the digit is the only place it fits in the inferred house. */
-export function hintHiddenSingleText(value: number, kind: HiddenSingleHouse["kind"]): string {
+/** Hidden Singles beat 2: the digit is the only place it fits in the inferred house. */
+export function hintHiddenSingleText(value: number, kind: UnitKind): string {
   return `得 〔${value}〕 喺呢${HOUSE_WORD[kind]}只得這一格。`;
+}
+
+export function hintBeginnerReveal(technique: string, digit: number): string {
+  if (technique === "last_free_cell") return `得 〔${digit}〕 未出現。`;
+  if (technique === "last_remaining_cell") return `〔${digit}〕 已經出現喺標住嘅格，呢個單位只剩這一格。`;
+  return `得 〔${digit}〕 未出現喺呢行／列／宮。`;
+}
+
+export function hintClearReveal(technique: string, digits: readonly number[], keep: readonly number[]): string {
+  const list = (values: readonly number[]) => values.join("、");
+  if (technique === "hidden_pairs") return `呢兩格刪走其他候選，只留 〔${list(keep)}〕。`;
+  if (technique === "hidden_triples") return `呢三格刪走其他候選，只留 〔${list(keep)}〕。`;
+  return `同單位其他格刪走 〔${list(digits)}〕。`;
 }
 
 export type HintStepIndex = 0 | 1 | 2 | 3 | 4;
 
-/** Button label for the current hint step. Singles stay on 「提示」 through step 1 and are 「填入」 from step 3. */
+/** Button label for the current hint step. */
 export function hintButtonLabel(step: number, technique: string | null): string {
-  if (technique === "naked_single" || technique === "hidden_single") {
+  if (technique === "notes") return step >= 1 ? "填滿候選" : "提示";
+  if (technique && FILL3.has(technique)) {
+    if (step >= 2) return "填入";
+    if (step === 1) return "再提示";
+    return "提示";
+  }
+  if (technique && FILL4.has(technique)) {
     if (step <= 1) return "提示";
     if (step >= 3) return "填入";
     return "再提示";
+  }
+  if (technique && CLEAR3.has(technique)) {
+    if (step >= 2) return "清候選";
+    if (step === 1) return "再提示";
+    return "提示";
   }
   return step >= 1 ? "再提示" : "提示";
 }
@@ -137,166 +207,180 @@ export interface HintView {
 
 export interface HintPress {
   view: HintView;
-  /** Set only when the player presses 「填入」 on a Naked Single or Hidden Single. The view is already cleared. */
+  /** Set when a fill technique's last press writes. The view is already cleared. */
   write: { index: number; digit: number } | null;
+  /** Set when a 「否」 technique's last press clears notes. No digit is written. */
+  clearNotes: { indexes: number[]; digits: number[] } | null;
+  /** Set when the Notes gate's main button fills every legal candidate. */
+  fillCandidates: boolean;
 }
 
 export function emptyHintView(note: string | null = null): HintView {
   return { step: 0, indexes: [], technique: null, action: null, note };
 }
 
+function idle(view: HintView): HintPress {
+  return { view, write: null, clearNotes: null, fillCandidates: false };
+}
+
+function stuck(): HintPress {
+  return idle(emptyHintView(HINT_STUCK));
+}
+
 /**
  * One press of the hint control.
- * Other techniques stop at step 2. Naked Single and Hidden Single reach
- * 「填入 〔n〕。」 on the third press, with the button already 「填入」.
- * The fourth press writes.
+ * #1–#3 write on the third press. #5 and #8 keep the four-press fill.
+ * #6/#7/#9/#10 clear notes on the third press. Notes fills candidates, never a digit.
  */
-export function pressHint(view: HintView, values: readonly number[]): HintPress {
-  if (view.technique === "naked_single" && view.action?.kind === "fill" && view.step >= 1) {
-    return pressNakedSingle(view, values, view.action.value);
+export function pressHint(view: HintView, values: readonly number[], notes?: readonly number[]): HintPress {
+  if (view.technique === "notes" && view.step >= 1) {
+    return { view: emptyHintView(null), write: null, clearNotes: null, fillCandidates: true };
   }
-  if (view.technique === "hidden_single" && view.action?.kind === "fill" && view.step >= 1) {
-    return pressHiddenSingle(view, values, view.action.value);
+  if (view.technique && FILL3.has(view.technique) && view.action?.kind === "fill" && view.step >= 1) {
+    return pressFill3(view, values, view.action.value);
   }
-  if (view.step === 1 && view.action) {
-    return { view: { ...view, step: 2, note: hintLevel2Text(view.action) }, write: null };
+  if (view.technique === "obvious_singles" && view.action?.kind === "fill" && view.step >= 1) {
+    return pressObviousSingle(view, view.action);
   }
-  if (view.step >= 2) return { view, write: null };
+  if (view.technique === "hidden_singles" && view.action?.kind === "fill" && view.step >= 1) {
+    return pressHiddenSingle(view, view.action);
+  }
+  if (view.technique && CLEAR3.has(view.technique) && view.action?.kind === "clear" && view.step >= 1) {
+    return pressClear3(view, view.action);
+  }
+  if (view.step >= 1) return idle(view);
 
-  const hint = findHint(values);
-  if (!hint) return { view: emptyHintView(HINT_STUCK), write: null };
-  if (hint.technique === "naked_single" && hint.action.kind === "fill") {
-    const beat = nakedSingleBeat(1, hint.indexes[0], hint.action.value, []);
-    return {
-      view: {
-        step: 1,
-        indexes: beat.indexes,
-        technique: hint.technique,
-        action: hint.action,
-        note: beat.note,
-      },
-      write: null,
-    };
-  }
-  if (hint.technique === "hidden_single" && hint.action.kind === "fill") {
-    const beat = hiddenSingleBeat(1, hint.indexes[0], hint.action.value, null);
-    return {
-      view: {
-        step: 1,
-        indexes: beat.indexes,
-        technique: hint.technique,
-        action: hint.action,
-        note: beat.note,
-      },
-      write: null,
-    };
-  }
-  return {
-    view: {
-      step: 1,
-      indexes: hint.indexes.slice(),
-      technique: hint.technique,
-      action: hint.action,
-      note: hintLevel1Text(hint),
-    },
-    write: null,
-  };
+  const hint = findHint(values, notes);
+  if (!hint) return stuck();
+  return idle({
+    step: 1,
+    indexes: hint.indexes.slice(),
+    technique: hint.technique,
+    action: hint.action,
+    note: hintLevel1Text(hint),
+  });
 }
 
-interface SingleBeat {
-  step: 1 | 2 | 3;
-  indexes: number[];
-  note: string;
+function beginnerEvidence(technique: string, values: readonly number[], target: number, digit: number, fallback: readonly number[]): number[] {
+  if (technique === "last_free_cell") {
+    const found = lastFreeEvidence(values, target);
+    if (found.length > 0) return found;
+  } else if (technique === "last_remaining_cell") {
+    const found = lastRemainingEvidence(values, target, digit);
+    if (found.length > 0) return found;
+  } else if (technique === "last_possible_number") {
+    const found = lastPossibleEvidence(values, target);
+    if (found.length > 0) return found;
+  }
+  return fallback.filter((index) => index !== target);
 }
 
-function nakedSingleBeat(step: 1 | 2 | 3, target: number, digit: number, evidence: readonly number[]): SingleBeat {
-  if (step === 1) {
-    return {
-      step,
-      indexes: [target],
-      note: hintLevel1Text({ indexes: [target], technique: "naked_single", action: { kind: "fill", value: digit } }),
-    };
-  }
-  if (step === 2) {
-    const indexes = [target];
-    for (const peer of evidence) if (peer !== target && !indexes.includes(peer)) indexes.push(peer);
-    return { step, indexes, note: hintNakedMissingText(digit) };
-  }
-  return { step, indexes: [target], note: hintLevel2FillText(digit) };
-}
-
-function pressNakedSingle(view: HintView, values: readonly number[], digit: number): HintPress {
+function pressFill3(view: HintView, values: readonly number[], digit: number): HintPress {
   const target = view.indexes[0];
-  if (target === undefined) return { view: emptyHintView(HINT_STUCK), write: null };
+  if (target === undefined || view.action?.kind !== "fill") return stuck();
+  if (view.step >= 2) {
+    return { view: emptyHintView(null), write: { index: target, digit }, clearNotes: null, fillCandidates: false };
+  }
+  const evidence = beginnerEvidence(view.technique ?? "", values, target, digit, view.action.evidence);
+  const indexes = [target];
+  for (const cell of evidence) if (cell !== target && !indexes.includes(cell)) indexes.push(cell);
+  return idle({
+    step: 2,
+    indexes,
+    technique: view.technique,
+    action: view.action,
+    note: hintBeginnerReveal(view.technique ?? "", digit),
+  });
+}
+
+function pressObviousSingle(view: HintView, action: Extract<HintAction, { kind: "fill" }>): HintPress {
+  const target = view.indexes[0];
+  if (target === undefined) return stuck();
   if (view.step >= 3) {
-    return { view: emptyHintView(null), write: { index: target, digit } };
+    return { view: emptyHintView(null), write: { index: target, digit: action.value }, clearNotes: null, fillCandidates: false };
   }
   const next = (view.step + 1) as 2 | 3;
-  const beat = nakedSingleBeat(next, target, digit, evidencePeers(values, target, digit));
-  return {
-    view: {
-      step: beat.step,
-      indexes: beat.indexes,
-      technique: "naked_single",
-      action: view.action,
-      note: beat.note,
-    },
-    write: null,
-  };
-}
-
-function hiddenSingleBeat(
-  step: 1 | 2 | 3,
-  target: number,
-  digit: number,
-  house: HiddenSingleHouse | null,
-): SingleBeat {
-  if (step === 1) {
-    return {
-      step,
-      indexes: [target],
-      note: hintLevel1Text({
-        indexes: [target],
-        technique: "hidden_single",
-        action: { kind: "fill", value: digit },
-      }),
-    };
-  }
-  if (step === 2) {
+  if (next === 2) {
     const indexes = [target];
-    for (const cell of house?.cells ?? []) if (!indexes.includes(cell)) indexes.push(cell);
-    const note = house ? hintHiddenSingleText(digit, house.kind) : `得 〔${digit}〕 喺呢一區只得這一格。`;
-    return { step, indexes, note };
+    for (const cell of action.evidence) if (cell !== target && !indexes.includes(cell)) indexes.push(cell);
+    return idle({
+      step: 2,
+      indexes,
+      technique: "obvious_singles",
+      action,
+      note: hintNakedMissingText(action.value),
+    });
   }
-  return { step, indexes: [target], note: hintLevel2FillText(digit) };
+  return idle({
+    step: 3,
+    indexes: [target],
+    technique: "obvious_singles",
+    action,
+    note: hintLevel2FillText(action.value),
+  });
 }
 
-function pressHiddenSingle(view: HintView, values: readonly number[], digit: number): HintPress {
+function pressHiddenSingle(view: HintView, action: Extract<HintAction, { kind: "fill" }>): HintPress {
   const target = view.indexes[0];
-  if (target === undefined) return { view: emptyHintView(HINT_STUCK), write: null };
+  if (target === undefined) return stuck();
   if (view.step >= 3) {
-    return { view: emptyHintView(null), write: { index: target, digit } };
+    return { view: emptyHintView(null), write: { index: target, digit: action.value }, clearNotes: null, fillCandidates: false };
   }
   const next = (view.step + 1) as 2 | 3;
-  const house = next === 2 ? hiddenSingleHouse(values, target, digit) : null;
-  const beat = hiddenSingleBeat(next, target, digit, house);
-  return {
-    view: {
-      step: beat.step,
-      indexes: beat.indexes,
-      technique: "hidden_single",
-      action: view.action,
-      note: beat.note,
-    },
-    write: null,
-  };
+  if (next === 2) {
+    const indexes = [target];
+    for (const cell of action.evidence) if (!indexes.includes(cell)) indexes.push(cell);
+    const kind = action.unit ?? "row";
+    return idle({
+      step: 2,
+      indexes,
+      technique: "hidden_singles",
+      action,
+      note: hintHiddenSingleText(action.value, kind),
+    });
+  }
+  return idle({
+    step: 3,
+    indexes: [target],
+    technique: "hidden_singles",
+    action,
+    note: hintLevel2FillText(action.value),
+  });
 }
+
+function pressClear3(view: HintView, action: Extract<HintAction, { kind: "clear" }>): HintPress {
+  if (view.step >= 2) {
+    return {
+      view: emptyHintView(null),
+      write: null,
+      clearNotes: { indexes: action.indexes.slice(), digits: action.digits.slice() },
+      fillCandidates: false,
+    };
+  }
+  const pattern = view.indexes.slice();
+  const indexes = pattern.slice();
+  for (const cell of action.indexes) if (!indexes.includes(cell)) indexes.push(cell);
+  return idle({
+    step: 2,
+    indexes,
+    technique: view.technique,
+    action,
+    note: hintClearReveal(view.technique ?? "", action.digits, action.keep),
+  });
+}
+
+const GROUP_SIZE: Record<string, number> = {
+  obvious_pairs: 2,
+  hidden_pairs: 2,
+  obvious_triples: 3,
+  hidden_triples: 3,
+};
 
 /**
  * Classes for one cell in the current hint.
- * Hidden Single beat 2 paints the whole house, a blue frame on the other
- * empty cells, and the usual target mark. Filled house cells stay unmarked
- * beyond the house wash.
+ * Hidden Singles beat 2 paints the whole house. Beginner and obvious-single
+ * beat 2 mark evidence beside the target. Elimination beat 2 marks the cells
+ * whose notes will be cleared.
  */
 export function hintCellClasses(
   technique: string | null,
@@ -306,53 +390,45 @@ export function hintCellClasses(
   value: number,
 ): string[] {
   if (step < 1 || !indexes.includes(index)) return [];
-  if (technique === "hidden_single" && step === 2) {
+  if (technique === "hidden_singles" && step === 2) {
     const classes = ["hint-house"];
     if (index === indexes[0]) classes.push("hint");
     else if (value === 0) classes.push("hint-evidence");
     return classes;
   }
-  const evidence = technique === "naked_single" && step === 2 && index !== indexes[0];
-  return [evidence ? "hint-evidence" : "hint"];
+  const group = technique ? GROUP_SIZE[technique] : undefined;
+  if (group && step === 2) {
+    const position = indexes.indexOf(index);
+    return [position >= 0 && position < group ? "hint" : "hint-evidence"];
+  }
+  const reveal =
+    step === 2 &&
+    index !== indexes[0] &&
+    (technique === "last_free_cell" ||
+      technique === "last_remaining_cell" ||
+      technique === "last_possible_number" ||
+      technique === "obvious_singles");
+  if (reveal) return ["hint-evidence"];
+  return ["hint"];
 }
 
-/** L2 for a placement: the digit `nextHint` already returned. */
+/** L3 / fill line for a placement technique. */
 export function hintLevel2FillText(value: number): string {
   return `填入 〔${value}〕。`;
 }
 
-/** L2 for an elimination: the candidate list from that same step. */
+/** L2 for an elimination: the candidate list from that step. */
 export function hintLevel2NotesText(digits: readonly number[]): string {
   return `清／改呢啲候選：〔${digits.join("、")}〕。`;
 }
 
 export function hintLevel2Text(action: HintAction): string {
-  return action.kind === "notes" ? hintLevel2NotesText(action.digits) : hintLevel2FillText(action.value);
+  if (action.kind === "notes") return HINT_NOTES;
+  if (action.kind === "clear") return hintClearReveal("obvious_pairs", action.digits, action.keep);
+  return hintLevel2FillText(action.value);
 }
 
 /** @deprecated Use findHint. Kept so older imports still compile. */
 export function nextSingleCell(flat: readonly number[]): number | null {
   return findHint(flat)?.indexes[0] ?? null;
-}
-
-function cellsOf(hint: HintPayload): number[] {
-  const found: number[] = [];
-  const add = (index: number) => {
-    if (!Number.isInteger(index) || index < 0 || index >= 81) return;
-    if (!found.includes(index)) found.push(index);
-  };
-  if (Number.isInteger(hint.row) && Number.isInteger(hint.col)) add(hint.row * 9 + hint.col);
-  if (hint.cells) for (const index of hint.cells) add(index);
-  return found;
-}
-
-function digitsToClear(hint: HintPayload): number[] | null {
-  if (!hint.clear || hint.clear.length === 0) return null;
-  const digits: number[] = [];
-  for (const digit of hint.clear) {
-    if (!Number.isInteger(digit) || digit < 1 || digit > 9 || digits.includes(digit)) continue;
-    digits.push(digit);
-  }
-  digits.sort((a, b) => a - b);
-  return digits.length > 0 ? digits : null;
 }

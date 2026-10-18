@@ -1,5 +1,6 @@
 import {
   armDigit,
+  clearCandidateDigits,
   conflictMask,
   createBoard,
   emptyCellCount,
@@ -153,7 +154,7 @@ function onClick(event: MouseEvent): void {
   const action = target.dataset.action;
   if (action === "start") {
     const difficulty = target.dataset.difficulty;
-    if (difficulty === "入門" || difficulty === "進階") void startGame(difficulty);
+    if (difficulty === "初級" || difficulty === "中級" || difficulty === "高級") void startGame(difficulty);
     return;
   }
   if (action === "retry") {
@@ -271,6 +272,11 @@ function onClick(event: MouseEvent): void {
     render();
     return;
   }
+  if (action === "hint-later") {
+    resetHint(play);
+    render();
+    return;
+  }
   if (action === "hint") {
     showHint(play);
     return;
@@ -323,7 +329,23 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function showHint(play: Play): void {
-  const result = pressHint(hintViewOf(play), play.values);
+  const result = pressHint(hintViewOf(play), play.values, play.notes);
+  if (result.fillCandidates) {
+    fillAllCandidates(play);
+    applyHintView(play, emptyHintView(null));
+    play.candidateNote = "已填合法候選 · 可撤銷";
+    play.selectedCell = null;
+    render();
+    return;
+  }
+  if (result.clearNotes) {
+    clearCandidateDigits(play, result.clearNotes.indexes, result.clearNotes.digits);
+    applyHintView(play, result.view);
+    play.candidateNote = "已清候選 · 可撤銷";
+    play.selectedCell = null;
+    render();
+    return;
+  }
   const unchanged =
     result.write === null &&
     result.view.step === play.hintStep &&
@@ -477,6 +499,11 @@ function playHtml(play: Play): string {
       <button type="button" data-action="notes" aria-pressed="${play.pencilMode}" ${locked}>筆記</button>
       <button type="button" class="minor" data-action="fill-candidates" ${locked}>填滿候選</button>
       <button type="button" data-action="hint" ${locked}>${hintLabel}</button>
+      ${
+        play.hintTechnique === "notes" && play.hintStep >= 1
+          ? `<button type="button" class="minor" data-action="hint-later" ${locked}>稍後</button>`
+          : ""
+      }
       <div class="menu">
         <button type="button" data-action="menu" aria-expanded="${play.menuOpen}" aria-haspopup="menu" aria-label="更多" ${locked}>⋯</button>
         ${menu}
@@ -496,13 +523,17 @@ function homeHtml(): string {
       <p class="lede">難度由這一題需要的最高解題技巧決定。</p>
     </header>
     <div class="choices">
-      <button type="button" class="choice intro" data-action="start" data-difficulty="入門">
-        <span class="kicker">入門</span>
-        <span class="blurb">顯式唯一、隱式唯一</span>
+      <button type="button" class="choice intro" data-action="start" data-difficulty="初級">
+        <span class="kicker">初級</span>
+        <span class="blurb">最後一格、剩餘格、唯一數字</span>
       </button>
-      <button type="button" class="choice advanced" data-action="start" data-difficulty="進階">
-        <span class="kicker">進階</span>
-        <span class="blurb">數對、區塊指向、宮線排除</span>
+      <button type="button" class="choice mid" data-action="start" data-difficulty="中級">
+        <span class="kicker">中級</span>
+        <span class="blurb">筆記之後嘅單一、數對、三數組</span>
+      </button>
+      <button type="button" class="choice advanced" data-action="start" data-difficulty="高級">
+        <span class="kicker">高級</span>
+        <span class="blurb">區塊指向、X-Wing、魚形</span>
       </button>
     </div>
     <p class="credit">題目引擎 <a href="https://github.com/mr-girff/openzeloku">openzeloku</a>（MIT）</p>

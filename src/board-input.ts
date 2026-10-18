@@ -1,6 +1,11 @@
 /** Digit-first board edits. Givens are never written and never undo entries. */
 
-import { peersOf } from "./engine/techniques";
+import {
+  findLastFreeCell,
+  findLastPossibleNumber,
+  findLastRemainingCell,
+  peersOf,
+} from "./engine/techniques";
 
 export interface CellSnapshot {
   index: number;
@@ -197,6 +202,62 @@ export function hiddenSingleHouse(
     if (holders.length === 1 && holders[0] === target) return unit;
   }
   return null;
+}
+
+/**
+ * Filled cells of the unit that makes `target` a Last Free Cell.
+ * Empty when `target` is not that cell.
+ */
+export function lastFreeEvidence(values: readonly number[], target: number): number[] {
+  const hit = findLastFreeCell(values);
+  if (!hit || hit.index !== target) return [];
+  return hit.evidence;
+}
+
+/**
+ * Cells that already show `digit` and explain a Last Remaining Cell.
+ * Empty when this target/digit is not the current hit.
+ */
+export function lastRemainingEvidence(values: readonly number[], target: number, digit: number): number[] {
+  const hit = findLastRemainingCell(values);
+  if (!hit || hit.index !== target || hit.digit !== digit) return [];
+  return hit.evidence;
+}
+
+/** Filled cells in the target's row, column, and box for Last Possible Number. */
+export function lastPossibleEvidence(values: readonly number[], target: number): number[] {
+  const hit = findLastPossibleNumber(values);
+  if (!hit || hit.index !== target) return [];
+  return hit.evidence;
+}
+
+/**
+ * Clear `digits` from pencil notes on `indexes`. One undo step. Does not write a value.
+ * Returns false when nothing on the board changes.
+ */
+export function clearCandidateDigits(
+  board: BoardInput,
+  indexes: readonly number[],
+  digits: readonly number[],
+): boolean {
+  let bit = 0;
+  for (const digit of digits) {
+    if (digit >= 1 && digit <= 9) bit |= 1 << digit;
+  }
+  if (bit === 0) return false;
+  const cells: CellSnapshot[] = [];
+  const seen = new Set<number>();
+  for (const index of indexes) {
+    if (!Number.isInteger(index) || index < 0 || index >= 81 || seen.has(index)) continue;
+    seen.add(index);
+    if (board.givens[index] || (board.values[index] ?? 0) !== 0) continue;
+    if (((board.notes[index] ?? 0) & bit) === 0) continue;
+    cells.push(snapshot(board, index));
+  }
+  if (cells.length === 0) return false;
+  pushUndo(board, cells);
+  for (const cell of cells) board.notes[cell.index] &= ~bit;
+  return true;
 }
 
 /** Drop `digit` from pencil notes in the same row, column, and box. */

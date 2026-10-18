@@ -6,6 +6,9 @@ export {
   TECHNIQUE_ORDER,
   analyze,
   isAdvancedTechnique,
-  isIntroTechnique,
+  isBeginnerTechnique,
+  isIntermediateTechnique,
+  techniqueBand,
+  techniqueRank,
 } from "./techniques";
-export type { AppliedTechnique } from "./techniques";
+export type { AppliedTechnique, TechniqueBand } from "./techniques";
