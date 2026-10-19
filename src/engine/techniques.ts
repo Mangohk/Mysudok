@@ -159,6 +159,13 @@ export function peersOf(index: number): readonly number[] {
   return PEERS[index] ?? [];
 }
 
+/** The row, column, or box that contains `index`. */
+export function unitCells(index: number, kind: UnitKind): readonly number[] {
+  if (kind === "row") return ROWS[rowOf(index)] ?? [];
+  if (kind === "col") return COLS[colOf(index)] ?? [];
+  return BOXES[boxOf(index)] ?? [];
+}
+
 function popcount(mask: number): number {
   let n = 0;
   let m = mask;
@@ -327,7 +334,10 @@ export function findLastFreeCell(values: readonly number[]): FillSpot | null {
   return null;
 }
 
-/** #2 Last Remaining Cell. One slot left for a digit, and the unit still has another blank. */
+/**
+ * #2 Last Remaining Cell. One slot left for a digit, and the unit still has another blank.
+ * Scan order inside each house is digit → cell (sudoku.com).
+ */
 export function findLastRemainingCell(values: readonly number[]): FillSpot | null {
   if (values.length !== CELLS) return null;
   for (let u = 0; u < UNITS.length; u++) {
@@ -350,7 +360,10 @@ export function findLastRemainingCell(values: readonly number[]): FillSpot | nul
   return null;
 }
 
-/** #3 Last Possible Number. A cell with one digit left from its row, column, and box. */
+/**
+ * #3 Last Possible Number. A cell with one digit left from its row, column, and box.
+ * Scan order is cell → digit (sudoku.com).
+ */
 export function findLastPossibleNumber(values: readonly number[]): FillSpot | null {
   if (values.length !== CELLS) return null;
   for (let index = 0; index < CELLS; index++) {

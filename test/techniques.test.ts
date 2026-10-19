@@ -126,6 +126,34 @@ test("Last Remaining Cell is a real detector and outranks Last Possible Number",
   assert.notEqual(possible.index, hit.index);
 });
 
+test("#2 scans digit then cell, #3 scans cell then digit", () => {
+  const grid = Array<number>(81).fill(0);
+  grid[2] = 3;
+  grid[3] = 4;
+  grid[4] = 5;
+  grid[5] = 6;
+  grid[6] = 7;
+  grid[7] = 8;
+  grid[8] = 9;
+  grid[27] = 1;
+  grid[28] = 2;
+  const remaining = findLastRemainingCell(grid);
+  assert.ok(remaining);
+  assert.equal(remaining.digit, 1);
+  assert.equal(remaining.index, 1);
+  assert.equal(remaining.unit, "row");
+
+  const naked = SOLUTION.slice();
+  naked[0] = 0;
+  naked[4] = 0;
+  const possible = findLastPossibleNumber(naked);
+  assert.ok(possible);
+  assert.equal(possible.index, 0);
+  assert.equal(possible.digit, SOLUTION[0]);
+  assert.notEqual(SOLUTION[4], SOLUTION[0]);
+  assert.ok(SOLUTION[4] < SOLUTION[0]);
+});
+
 test("Last Possible Number is the naked single left after #1 and #2 miss", () => {
   assert.equal(findLastFreeCell(POSSIBLE), null);
   assert.equal(findLastRemainingCell(POSSIBLE), null);

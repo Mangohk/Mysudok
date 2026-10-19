@@ -8,6 +8,7 @@ import {
   findObviousSet,
   findObviousSingle,
   TECHNIQUE_LABEL,
+  unitCells,
   type AppliedTechnique,
   type ClearSpot,
   type FillSpot,
@@ -36,8 +37,8 @@ const CLEAR3 = new Set(["obvious_pairs", "obvious_triples", "hidden_pairs", "hid
 
 const REASONS: Record<string, string> = {
   last_free_cell: "只剩這一格空白",
-  last_remaining_cell: "呢個單位仲欠一個數，多數位置已經排除",
-  last_possible_number: "睇吓呢行、列、宮已經用咗邊啲數",
+  last_remaining_cell: "所屬行、列或宮仲有空位，呢個數只可以放喺呢一格",
+  last_possible_number: "呢行、列、宮合埋會剩低一個數",
   obvious_singles: "呢一格只剩一個候選",
   obvious_pairs: "兩格一齊只剩兩個候選",
   obvious_triples: "三格一齊只剩三個候選",
@@ -127,11 +128,24 @@ export function findHint(flat: readonly number[], notes?: readonly number[]): St
   return null;
 }
 
+const HOUSE_WORD: Record<UnitKind, string> = {
+  row: "行",
+  col: "列",
+  box: "宮",
+};
+
+function reasonFor(hint: StepHint): string {
+  if (hint.technique === "last_remaining_cell" && hint.action.kind === "fill" && hint.action.unit) {
+    return `呢${HOUSE_WORD[hint.action.unit]}仲有空位，呢個數只可以放喺呢一格`;
+  }
+  return REASONS[hint.technique] ?? "可以跟呢個技巧睇下一步";
+}
+
 /** L1 names the technique and the reason. It does not reveal a digit or a clear-list. */
 export function hintLevel1Text(hint: StepHint): string {
   if (hint.technique === "notes") return HINT_NOTES;
   const name = techniqueTitle(hint.technique);
-  const reason = REASONS[hint.technique] ?? "可以跟呢個技巧睇下一步";
+  const reason = reasonFor(hint);
   const where = hint.indexes.length <= 1 ? "這一格" : "呢幾格";
   const next = "再撳提示睇下一步。";
   return `${where}可用〔${name}〕：〔${reason}〕。${next}`;
@@ -142,15 +156,25 @@ export function hintNakedMissingText(value: number): string {
   return `得 〔${value}〕 未出現喺呢行／列／宮。`;
 }
 
-const HOUSE_WORD: Record<UnitKind, string> = {
-  row: "行",
-  col: "列",
-  box: "宮",
-};
-
 /** Hidden Singles beat 2: the digit is the only place it fits in the inferred house. */
 export function hintHiddenSingleText(value: number, kind: UnitKind): string {
   return `得 〔${value}〕 喺呢${HOUSE_WORD[kind]}只得這一格。`;
+}
+
+/** #2 beat 2: this digit has one cell left in the named house. */
+export function hintLastRemainingText(value: number, kind: UnitKind): string {
+  return `〔${value}〕喺呢${HOUSE_WORD[kind]}只剩這一格。`;
+}
+
+/** #3 beat 2: row, column, and box together leave one digit. */
+export function hintLastPossibleText(value: number): string {
+  return `呢行、列、宮合埋只剩〔${value}〕。`;
+}
+
+export function fillRevealText(technique: string, digit: number, unit: UnitKind | null): string {
+  if (technique === "last_remaining_cell" && unit) return hintLastRemainingText(digit, unit);
+  if (technique === "last_possible_number") return hintLastPossibleText(digit);
+  return hintBeginnerReveal(digit);
 }
 
 /** Status on the press before a #1–#3 write. Same line Obvious Singles shows before filling. */
@@ -274,13 +298,18 @@ function pressFill3(view: HintView, values: readonly number[], digit: number): H
   }
   const evidence = beginnerEvidence(view.technique ?? "", values, target, digit, view.action.evidence);
   const indexes = [target];
+  if (view.technique === "last_remaining_cell" && view.action.unit) {
+    for (const cell of unitCells(target, view.action.unit)) {
+      if (!indexes.includes(cell)) indexes.push(cell);
+    }
+  }
   for (const cell of evidence) if (cell !== target && !indexes.includes(cell)) indexes.push(cell);
   return idle({
     step: 2,
     indexes,
     technique: view.technique,
     action: view.action,
-    note: hintBeginnerReveal(digit),
+    note: fillRevealText(view.technique ?? "", digit, view.action.unit),
   });
 }
 
@@ -381,6 +410,13 @@ export function hintCellClasses(
   value: number,
 ): string[] {
   if (step < 1 || !indexes.includes(index)) return [];
+  if (technique === "last_remaining_cell" && step === 2) {
+    const at = indexes.indexOf(index);
+    if (at < 0) return [];
+    if (at === 0) return ["hint-house", "hint"];
+    if (at < 9) return ["hint-house"];
+    return ["hint-evidence"];
+  }
   if (technique === "hidden_singles" && step === 2) {
     const classes = ["hint-house"];
     if (index === indexes[0]) classes.push("hint");
