@@ -48,11 +48,24 @@ test("board rows are nine equal tracks in portrait and landscape", () => {
 
 test("pencil notes cannot raise a row above an empty row", () => {
   const portrait = css.split("@media")[0] ?? "";
+  const cell = ruleBody("\\.cell", portrait);
+  assert.match(cell, /position:\s*relative/);
+
   const notes = ruleBody("\\.notes", portrait);
+  assert.match(notes, /position:\s*absolute/);
+  assert.match(notes, /inset:\s*0/);
   assert.match(notes, /min-width:\s*0/);
   assert.match(notes, /min-height:\s*0/);
   assert.match(notes, /overflow:\s*hidden/);
-  assert.match(notes, /font-size:\s*clamp\(/);
+  assert.match(notes, /font-size:\s*clamp\(\s*0\.48rem\s*,\s*1\.85vw\s*,\s*0\.68rem\s*\)/);
+  assert.match(notes, /grid-template-columns:\s*repeat\(\s*3\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\)/);
+  assert.match(notes, /grid-template-rows:\s*repeat\(\s*3\s*,\s*minmax\(\s*0\s*,\s*1fr\s*\)\s*\)/);
+  assert.doesNotMatch(notes, /repeat\(\s*3\s*,\s*1fr\s*\)/);
+
+  const slot = ruleBody("\\.notes i", portrait);
+  assert.match(slot, /place-items:\s*center/);
+  assert.match(slot, /min-width:\s*0/);
+  assert.match(slot, /min-height:\s*0/);
 
   const landscape = css.split("@media").find((block) => {
     const header = block.slice(0, block.indexOf("{"));
@@ -60,8 +73,10 @@ test("pencil notes cannot raise a row above an empty row", () => {
   });
   assert.ok(landscape);
   const notesFont = ruleBody("\\.notes", landscape);
-  assert.match(notesFont, /font-size:\s*clamp\([^)]*cqw/);
+  assert.match(notesFont, /font-size:\s*clamp\(\s*0\.42rem\s*,\s*2\.7cqw\s*,\s*0\.68rem\s*\)/);
   assert.doesNotMatch(notesFont, /grid-template-rows\s*:/);
+  assert.doesNotMatch(notesFont, /position\s*:/);
+  assert.doesNotMatch(notesFont, /inset\s*:/);
 });
 
 test("landscape right rail A keeps confirm, done, status, pad, tools, undo", () => {
