@@ -196,7 +196,9 @@ button { cursor: pointer; touch-action: manipulation; }
   display: grid;
   /* 1fr is minmax(auto, 1fr). Safari still sizes that auto minimum from
      pencil-note text after the cell sets min-height: 0, so a noted row
-     grows. A 0 minimum keeps every track an equal share of the board. */
+     grows. A 0 minimum keeps every track an equal share of the board.
+     Notes are taken out of flow as well, so a full candidate grid cannot
+     supply that minimum. */
   grid-template-columns: repeat(9, minmax(0, 1fr));
   grid-template-rows: repeat(9, minmax(0, 1fr));
   width: 100%;
