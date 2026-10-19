@@ -52,6 +52,25 @@ const appRoot = { el: null as HTMLElement | null };
 let phase: Phase = { kind: "home" };
 let requestId = 0;
 
+/** Puzzle ceiling. Kept apart from the technique named in the hint status. */
+export const CEILING_LABEL = "最高技巧";
+
+/** Digit-first coach. Hidden once the puzzle is complete. */
+export const DIGIT_FIRST_COACH = "先點數字，再點格子。";
+
+export const HOME_BLURB: Record<Difficulty, string> = {
+  初級: "最後一格、剩餘格、唯一數字",
+  中級: "筆記之後嘅單一、數對、三數組",
+  高級: "區塊指向、X-Wing、魚形",
+};
+
+/** Status under the board. The coach line is only for an unfinished, idle game. */
+export function playStatusMarkup(complete: boolean, banner: string | null): string {
+  if (banner) return `<p class="status" role="status">${esc(banner)}</p>`;
+  if (complete) return "";
+  return `<p class="status quiet" data-coach="digit-first">${esc(DIGIT_FIRST_COACH)}</p>`;
+}
+
 export function mount(root: HTMLElement): void {
   appRoot.el = root;
   root.addEventListener("click", onClick);
@@ -419,7 +438,7 @@ function boardHtml(play: Play): string {
       ? []
       : hintCellClasses(play.hintTechnique, play.hintStep, play.hintIndexes, index, value);
     if (hintClasses.length > 0) classes.push(...hintClasses);
-    else if (!conflicts[index] && highlight && value === armed) classes.push("same");
+    else if (!conflicts[index] && !classes.includes("wrong") && highlight && value === armed) classes.push("same");
     const thickRight = (index + 1) % 9 !== 0 && (index + 1) % 3 === 0;
     const row = Math.floor(index / 9);
     const thickBottom = row % 3 === 2 && row !== 8;
@@ -450,9 +469,7 @@ function padHtml(play: Play): string {
 function playHtml(play: Play): string {
   const label = techniqueLabel(play.puzzle.maxTechnique);
   const banner = play.hintNote ?? play.candidateNote ?? play.checkNote;
-  const status = banner
-    ? `<p class="status" role="status">${esc(banner)}</p>`
-    : `<p class="status quiet">先點數字，再點格子。最高技巧：${esc(label)}</p>`;
+  const status = playStatusMarkup(play.complete, banner);
   const hintLabel = hintButtonLabel(play.hintStep, play.hintTechnique);
   const menu = play.menuOpen
     ? `<div class="menu-pop" role="menu"><button type="button" data-action="check-wrong">檢查錯格</button></div>`
@@ -468,7 +485,8 @@ function playHtml(play: Play): string {
   const done = play.complete
     ? `<div class="done" role="dialog" aria-labelledby="done-title">
         <h2 id="done-title">完成</h2>
-        <p>最高技巧：${esc(label)}</p>
+        <p class="ceiling-kicker">${esc(CEILING_LABEL)}</p>
+        <p class="done-technique">${esc(label)}</p>
         <div class="done-actions">
           <button type="button" class="primary" data-action="again">再來一題</button>
           <button type="button" data-action="back">返回</button>
@@ -480,6 +498,7 @@ function playHtml(play: Play): string {
     <header class="top">
       <div>
         <p class="eyebrow">${esc(play.difficulty)}</p>
+        <p class="ceiling-kicker">${esc(CEILING_LABEL)}</p>
         <h1>${esc(label)}</h1>
         <p class="left">仲剩 ${emptyCellCount(play)} 格</p>
       </div>
@@ -494,6 +513,7 @@ function playHtml(play: Play): string {
       <button type="button" data-action="undo" ${locked} ${play.undo.length === 0 ? "disabled" : ""}>撤銷</button>
     </div>
     ${status}
+    ${done}
     ${confirm}
     <div class="tools">
       <button type="button" data-action="notes" aria-pressed="${play.pencilMode}" ${locked}>筆記</button>
@@ -510,7 +530,6 @@ function playHtml(play: Play): string {
       </div>
     </div>
     ${padHtml(play)}
-    ${done}
     <p class="help">1–9 選定數字，再點空格填入。再點同一數字可取消。N 筆記 · Z 撤銷 · H 提示</p>
   </section>`;
 }
@@ -525,15 +544,15 @@ function homeHtml(): string {
     <div class="choices">
       <button type="button" class="choice intro" data-action="start" data-difficulty="初級">
         <span class="kicker">初級</span>
-        <span class="blurb">最後一格、剩餘格、唯一數字</span>
+        <span class="blurb">${esc(HOME_BLURB.初級)}</span>
       </button>
       <button type="button" class="choice mid" data-action="start" data-difficulty="中級">
         <span class="kicker">中級</span>
-        <span class="blurb">筆記之後嘅單一、數對、三數組</span>
+        <span class="blurb">${esc(HOME_BLURB.中級)}</span>
       </button>
       <button type="button" class="choice advanced" data-action="start" data-difficulty="高級">
         <span class="kicker">高級</span>
-        <span class="blurb">區塊指向、X-Wing、魚形</span>
+        <span class="blurb">${esc(HOME_BLURB.高級)}</span>
       </button>
     </div>
     <p class="credit">題目引擎 <a href="https://github.com/mr-girff/openzeloku">openzeloku</a>（MIT）</p>
@@ -567,4 +586,7 @@ function render(): void {
   else if (phase.kind === "loading") root.innerHTML = loadingHtml(phase.difficulty);
   else if (phase.kind === "error") root.innerHTML = errorHtml(phase.message);
   else root.innerHTML = playHtml(phase.play);
+  if (phase.kind === "play" && phase.play.complete) {
+    root.querySelector(".done")?.scrollIntoView({ block: "nearest" });
+  }
 }

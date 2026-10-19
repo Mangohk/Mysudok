@@ -11,6 +11,8 @@ import {
   hintCellClasses,
   hintClearReveal,
   hintHiddenSingleText,
+  hintLastPossibleText,
+  hintLastRemainingText,
   hintLevel2FillText,
   hintNakedMissingText,
   notesReady,
@@ -137,36 +139,59 @@ test("#1 Last Free Cell writes on the third press", () => {
   assert.equal(fill.clearNotes, null);
 });
 
-test("#2 Last Remaining Cell reveals the digit and its blockers on the second press", () => {
+test("#2 Last Remaining Cell names the house and paints that house plus the digit", () => {
   const hit = findLastRemainingCell(REMAINING);
   assert.ok(hit);
+  assert.equal(hit.unit, "row");
   const first = pressHint(emptyHintView(), REMAINING);
   assert.equal(first.write, null);
   assert.equal(first.view.technique, "last_remaining_cell");
-  assert.equal(first.view.note?.includes("多數位置已經排除"), true);
+  assert.equal(first.view.note?.includes("呢行"), true);
+  assert.equal(first.view.note?.includes("呢個單位"), false);
   assert.equal(first.view.note?.includes(`〔${hit.digit}〕`), false);
   const second = pressHint(first.view, REMAINING);
   assert.equal(second.write, null);
-  assert.equal(second.view.note, `填入 〔${hit.digit}〕。`);
+  assert.equal(second.view.note, hintLastRemainingText(hit.digit, "row"));
+  assert.equal(second.view.note, `〔${hit.digit}〕喺呢行只剩這一格。`);
   assert.equal(second.view.indexes[0], hit.index);
-  for (const cell of hit.evidence) assert.equal(second.view.indexes.includes(cell), true);
+  const house = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  for (const cell of house) assert.equal(second.view.indexes.includes(cell), true);
+  assert.deepEqual(second.view.indexes.slice(0, 9), [hit.index, ...house.filter((cell) => cell !== hit.index)]);
+  assert.deepEqual(hintCellClasses("last_remaining_cell", 2, second.view.indexes, hit.index, 0), ["hint-house", "hint"]);
+  const other = house.find((cell) => cell !== hit.index);
+  assert.ok(other !== undefined);
+  assert.deepEqual(hintCellClasses("last_remaining_cell", 2, second.view.indexes, other, REMAINING[other]), ["hint-house"]);
+  assert.ok(hit.evidence.length > 0);
+  for (const cell of hit.evidence) {
+    assert.equal(house.includes(cell), false);
+    assert.equal(second.view.indexes.includes(cell), true);
+    assert.equal(REMAINING[cell], hit.digit);
+    assert.deepEqual(hintCellClasses("last_remaining_cell", 2, second.view.indexes, cell, REMAINING[cell]), ["hint-evidence"]);
+  }
   const fill = pressHint(second.view, REMAINING);
   assert.deepEqual(fill.write, { index: hit.index, digit: hit.digit });
 });
 
-test("#3 Last Possible Number writes on the third press and shows three-unit evidence", () => {
+test("#3 Last Possible Number names the three houses and marks used digits", () => {
   const hit = findLastPossibleNumber(POSSIBLE);
   assert.ok(hit);
   const first = pressHint(emptyHintView(), POSSIBLE);
   assert.equal(first.view.technique, "last_possible_number");
-  assert.equal(first.view.note?.includes("睇吓呢行、列、宮已經用咗邊啲數"), true);
+  assert.equal(first.view.note?.includes("呢行、列、宮合埋會剩低一個數"), true);
   assert.equal(first.view.note?.includes("Last Possible Number"), true);
+  assert.equal(first.view.note?.includes("呢個單位"), false);
   assert.equal(first.view.note?.includes(`〔${hit.digit}〕`), false);
   const second = pressHint(first.view, POSSIBLE);
   assert.equal(second.write, null);
-  assert.equal(second.view.note, `填入 〔${hit.digit}〕。`);
+  assert.equal(second.view.note, hintLastPossibleText(hit.digit));
+  assert.equal(second.view.note, `呢行、列、宮合埋只剩〔${hit.digit}〕。`);
   assert.equal(second.view.indexes[0], hit.index);
   assert.ok(second.view.indexes.length > 1);
+  assert.deepEqual(hintCellClasses("last_possible_number", 2, second.view.indexes, hit.index, 0), ["hint"]);
+  for (const cell of second.view.indexes.slice(1)) {
+    assert.notEqual(POSSIBLE[cell], 0);
+    assert.deepEqual(hintCellClasses("last_possible_number", 2, second.view.indexes, cell, POSSIBLE[cell]), ["hint-evidence"]);
+  }
   const fill = pressHint(second.view, POSSIBLE);
   assert.deepEqual(fill.write, { index: hit.index, digit: hit.digit });
   assert.equal(hintButtonLabel(2, "last_possible_number"), "填入");
