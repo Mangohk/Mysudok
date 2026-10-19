@@ -496,7 +496,7 @@ function playHtml(play: Play): string {
   const locked = play.complete ? "disabled" : "";
   return `<section class="play">
     <header class="top">
-      <div>
+      <div class="top-copy">
         <p class="eyebrow">${esc(play.difficulty)}</p>
         <p class="ceiling-kicker">${esc(CEILING_LABEL)}</p>
         <h1>${esc(label)}</h1>
@@ -508,28 +508,32 @@ function playHtml(play: Play): string {
         <button type="button" data-action="back">返回</button>
       </div>
     </header>
-    ${boardHtml(play)}
-    <div class="undo-bar">
-      <button type="button" data-action="undo" ${locked} ${play.undo.length === 0 ? "disabled" : ""}>撤銷</button>
+    <div class="play-main">
+      ${boardHtml(play)}
     </div>
-    ${status}
-    ${done}
-    ${confirm}
-    <div class="tools">
-      <button type="button" data-action="notes" aria-pressed="${play.pencilMode}" ${locked}>筆記</button>
-      <button type="button" class="minor" data-action="fill-candidates" ${locked}>填滿候選</button>
-      <button type="button" data-action="hint" ${locked}>${hintLabel}</button>
-      ${
-        play.hintTechnique === "notes" && play.hintStep >= 1
-          ? `<button type="button" class="minor" data-action="hint-later" ${locked}>稍後</button>`
-          : ""
-      }
-      <div class="menu">
-        <button type="button" data-action="menu" aria-expanded="${play.menuOpen}" aria-haspopup="menu" aria-label="更多" ${locked}>⋯</button>
-        ${menu}
+    <div class="play-rail">
+      <div class="undo-bar">
+        <button type="button" data-action="undo" ${locked} ${play.undo.length === 0 ? "disabled" : ""}>撤銷</button>
       </div>
+      ${status}
+      ${done}
+      ${confirm}
+      <div class="tools">
+        <button type="button" data-action="notes" aria-pressed="${play.pencilMode}" ${locked}>筆記</button>
+        <button type="button" class="minor" data-action="fill-candidates" ${locked}>填滿候選</button>
+        <button type="button" data-action="hint" ${locked}>${hintLabel}</button>
+        ${
+          play.hintTechnique === "notes" && play.hintStep >= 1
+            ? `<button type="button" class="minor" data-action="hint-later" ${locked}>稍後</button>`
+            : ""
+        }
+        <div class="menu">
+          <button type="button" data-action="menu" aria-expanded="${play.menuOpen}" aria-haspopup="menu" aria-label="更多" ${locked}>⋯</button>
+          ${menu}
+        </div>
+      </div>
+      ${padHtml(play)}
     </div>
-    ${padHtml(play)}
     <p class="help">1–9 選定數字，再點空格填入。再點同一數字可取消。N 筆記 · Z 撤銷 · H 提示</p>
   </section>`;
 }
