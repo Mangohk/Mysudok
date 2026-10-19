@@ -195,6 +195,9 @@ button { cursor: pointer; touch-action: manipulation; }
 .board {
   display: grid;
   grid-template-columns: repeat(9, 1fr);
+  /* 1fr is minmax(auto, 1fr). Cells zero their content minimum so a sparse
+     row (no digit, no notes) still takes the same track as a filled row. */
+  grid-template-rows: repeat(9, 1fr);
   width: 100%;
   aspect-ratio: 1;
   border: 2px solid var(--line);
@@ -208,6 +211,8 @@ button { cursor: pointer; touch-action: manipulation; }
   place-items: center;
   margin: 0;
   padding: 0;
+  min-width: 0;
+  min-height: 0;
   border: 0;
   border-right: 1px solid var(--thin);
   border-bottom: 1px solid var(--thin);
@@ -517,6 +522,8 @@ button:disabled { opacity: 0.4; cursor: default; }
     min-width: 0;
     min-height: 0;
     height: 100%;
+    /* Definite width and height so the board can take min(cqw, cqh). */
+    container-type: size;
   }
 
   .play-rail {
@@ -538,9 +545,10 @@ button:disabled { opacity: 0.4; cursor: default; }
   }
 
   .board {
-    width: 100%;
-    height: auto;
-    max-height: 100%;
+    /* Side is the smaller of the column and the row. Width is not stretched
+       and then clipped with max-height, which left a wide board and flat rows. */
+    width: min(100cqw, 100cqh);
+    height: min(100cqw, 100cqh);
     aspect-ratio: 1;
     container-type: inline-size;
   }
