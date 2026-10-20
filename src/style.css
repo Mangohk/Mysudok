@@ -56,7 +56,7 @@ button { cursor: pointer; touch-action: manipulation; }
   color: var(--muted);
 }
 
-.mast h1, .loading h1, .error h1, .top h1, .done h2 {
+.mast h1, .loading h1, .error h1, .done h2 {
   font-family: "Iowan Old Style", Palatino, "Palatino Linotype", "Songti TC", "PMingLiU", serif;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -115,38 +115,6 @@ button { cursor: pointer; touch-action: manipulation; }
 .credit { margin-top: 1.75rem; color: var(--muted); font-size: 0.85rem; }
 .credit a { color: inherit; }
 
-.skills { margin-top: 1.6rem; }
-.skills h2 {
-  margin: 0 0 0.55rem;
-  font-size: 0.78rem;
-  letter-spacing: 0.14em;
-  color: var(--muted);
-  font-weight: 750;
-}
-.skill-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.4rem;
-}
-.skill-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.65rem;
-  font-size: 0.92rem;
-}
-.skill-rank {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  min-width: 1.7rem;
-}
-.skill-name { font-weight: 650; }
-.skill-list a { margin-left: auto; color: var(--user); font-size: 0.82rem; }
-.skill-map { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.75rem; }
-.skill-map a { color: inherit; }
-
 .loading, .error {
   display: flex;
   flex-direction: column;
@@ -172,38 +140,6 @@ button { cursor: pointer; touch-action: manipulation; }
   align-items: flex-end;
   gap: 0.75rem;
   margin-bottom: 0.85rem;
-}
-
-.eyebrow {
-  margin: 0 0 0.1rem;
-  font-size: 0.78rem;
-  letter-spacing: 0.14em;
-  color: var(--muted);
-}
-
-.ceiling-kicker {
-  margin: 0.15rem 0 0.05rem;
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.18em;
-  color: var(--muted);
-}
-
-.done-technique {
-  margin: 0.1rem 0 0.85rem;
-  font-family: "Iowan Old Style", Palatino, "Palatino Linotype", "Songti TC", "PMingLiU", serif;
-  font-size: 1.45rem;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.top h1 { margin: 0; font-size: 1.85rem; line-height: 1; }
-
-.left {
-  margin: 0.35rem 0 0;
-  color: #4e4338;
-  font-size: 0.95rem;
-  font-weight: 650;
 }
 
 .top-actions, .done-actions, .confirm {
@@ -545,8 +481,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   background: #e7f3ea;
 }
 
-.done h2 { margin: 0 0 0.2rem; font-size: 2rem; }
-.done p { margin: 0 0 0.75rem; }
+.done h2 { margin: 0 0 0.85rem; font-size: 2rem; }
 .done-actions { flex-wrap: wrap; }
 
 .help {
@@ -605,13 +540,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   }
 
   .top { display: contents; }
-
-  .top-copy {
-    grid-column: 2;
-    grid-row: 1;
-    align-self: end;
-    min-width: 0;
-  }
 
   .top-actions {
     grid-column: 3;
@@ -769,9 +697,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   }
 
   .help { display: none; }
-
-  .top-copy h1 { font-size: 1.2rem; }
-  .top-copy .left { margin-top: 0.15rem; }
 
   .play-rail { gap: 0.35rem; }
 
