@@ -118,6 +118,10 @@ test("the shipped bank is 1300 rows, 100 per open technique, with no stored morp
     assert.equal(filterByHardest(entries, choice.id).length, PRACTICE_TARGET);
     for (const entry of filterByHardest(entries, choice.id)) {
       assert.equal(entry.hardest, choice.id);
+      if (entry.hardest === "y_wing" || entry.hardest === "swordfish") assert.equal(entry.band, "expert");
+      if (entry.hardest === "pointing_pairs" || entry.hardest === "pointing_triples" || entry.hardest === "x_wing") {
+        assert.equal(entry.band, "advanced");
+      }
       assert.equal(entry.givens.length, 81);
       assert.equal(entry.solution.length, 81);
       for (let index = 0; index < 81; index++) {

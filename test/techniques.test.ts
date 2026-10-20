@@ -15,6 +15,7 @@ import {
   findYWing,
   isAdvancedTechnique,
   isBeginnerTechnique,
+  isExpertTechnique,
   isIntermediateTechnique,
   techniqueBand,
   techniqueRank,
@@ -95,10 +96,23 @@ test("technique ids, labels, and bands follow §11", () => {
   assert.equal(techniqueBand("last_possible_number"), "初級");
   assert.equal(techniqueBand("hidden_triples"), "中級");
   assert.equal(techniqueBand("pointing_pairs"), "高級");
+  assert.equal(techniqueBand("pointing_triples"), "高級");
+  assert.equal(techniqueBand("x_wing"), "高級");
+  assert.equal(techniqueBand("y_wing"), "專家");
+  assert.equal(techniqueBand("swordfish"), "專家");
   for (const id of TECHNIQUE_ORDER) {
-    if (techniqueRank(id) <= 3) assert.equal(isBeginnerTechnique(id), true);
-    else if (techniqueRank(id) <= 10) assert.equal(isIntermediateTechnique(id), true);
-    else assert.equal(isAdvancedTechnique(id), true);
+    const rank = techniqueRank(id);
+    if (rank <= 3) assert.equal(isBeginnerTechnique(id), true);
+    else if (rank <= 10) assert.equal(isIntermediateTechnique(id), true);
+    else if (rank <= 13) {
+      assert.equal(isAdvancedTechnique(id), true);
+      assert.equal(isExpertTechnique(id), false);
+      assert.equal(techniqueBand(id), "高級");
+    } else {
+      assert.equal(isAdvancedTechnique(id), false);
+      assert.equal(isExpertTechnique(id), true);
+      assert.equal(techniqueBand(id), "專家");
+    }
   }
 });
 

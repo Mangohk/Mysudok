@@ -1,6 +1,6 @@
 # Mysudok
 
-A small static Sudoku game. Pick **初級**, **中級**, or **高級**, then fill a generated 9×9 puzzle. There is no account, no saved progress, and no backend.
+A small static Sudoku game. Pick **初級**, **中級**, **高級**, or **專家**, then fill a 9×9 puzzle. There is no account, no saved progress, and no backend.
 
 Difficulty is the hardest solving technique a human-style solver has to use, after the puzzle is checked for a unique solution. It is not the number of clues.
 
@@ -44,7 +44,7 @@ npm run preview
 
 ## Play
 
-1. Home: choose **初級**, **中級**, or **高級**. Each button has a short description and `data-difficulty`. The app shows「正在出題…」while it searches. **練習技巧**, beside those three, opens English Title Case technique names. Picking one deals a puzzle from the static bank whose `hardest` is that technique (`public/bank-by-hardest.jsonl`, served at `/Mysudok/bank-by-hardest.jsonl`). Notes and Obvious Singles are not in the list. Each open technique shows how many bank puzzles it has, as `nn/100`. An empty pool shows「暫缺」and does not start a game. Practice does not call `generate`. **新局** draws the same technique again, preferring a different bank id, and morphs it again. **返回** from a practice game goes back to that list.
+1. Home: choose **初級**, **中級**, **高級**, or **專家**. The four buttons are a vertical stack, each full width, with a short description and `data-difficulty`. There is no technique-practice entry. 初級, 中級, and 高級 show「正在出題…」while `generate` searches. **專家** draws first from the static bank (`public/bank-by-hardest.jsonl`, served at `/Mysudok/bank-by-hardest.jsonl`) where `hardest` is `y_wing` or `swordfish`, then applies the same deal-time morph. If that pool is empty or the file cannot be loaded, it tries one short `generate` (a few attempts, not an open-ended search). If that also misses, the screen says「專家題庫暫空」. **新局** on an expert game draws again, preferring a different bank id. **返回** goes back to the difficulty choice.
 2. Board, digit first: tap **1–9** to arm that digit (nothing is written yet). Cells that already show it are highlighted in beige. Tap an empty cell to fill it, or, in **筆記**, to toggle that candidate. Tap the same digit again to disarm it. Tap a filled cell you wrote to erase it. Givens cannot be edited. After a fill, the digit stays armed so you can keep placing it, and that same digit is cleared from pencil notes in the same row, column, and box. **上一步** undoes that fill and those note changes together. **填滿候選**, in the **⋯** menu, writes every legal candidate into the empty cells as pencil notes. That rewrite is one undo step, and the status line says「已填合法候選 · 可上一步」. Each digit button shows how many of that digit are still missing (`9 −` the number already on the board). A digit turns green when it sits in all nine solution cells and none of those cells conflict. The header shows「仲剩 N 格」, the empty cells that were not givens, and labels the puzzle ceiling as **最高技巧** above the technique name. While the board is unfinished and no hint is open, the status line is only「先點數字，再點格子。」. **新局** deals another puzzle. **重開** clears your fills on this puzzle. **返回** goes back to the difficulty choice.
 3. **提示** scans local techniques #1 → #3, then the Notes gate, then #5 → #10, then #11 → #15. It does not use openzeloku `nextHint`. Names in the header and in hints are Title Case English. Reason sentences stay Cantonese. #11–#15 are **Pointing Pairs**, **Pointing Triples**, **X-Wing**, **Y-Wing**, and **Swordfish**.
 
@@ -69,7 +69,7 @@ Play state stays in memory only.
 ## How a puzzle is generated
 
 ```ts
-type Difficulty = "初級" | "中級" | "高級";
+type Difficulty = "初級" | "中級" | "高級" | "專家";
 
 type Puzzle = {
   givens: number[][]; // 0 = empty
@@ -86,16 +86,16 @@ Implementation: [`src/engine/generate.ts`](src/engine/generate.ts).
 1. Ask [`openzeloku`](https://github.com/mr-girff/openzeloku) (MIT) for a 9×9 seed (`easy` / `medium` / `expert`).
 2. Confirm a unique solution with `countSolutions(grid, 9, 2)`.
 3. Rate the grid with local `analyze`. `maxTechnique` is the hardest step that had to be applied. This does not use openzeloku `rate()`.
-4. 初級 keeps the puzzle only when every step is #1–#3. 中級 keeps it when the hardest step is #5–#10. 高級 keeps it when at least one step is #11–#15. An attempt may add or remove clues from that unique puzzle until the rating lands in the band.
-5. 初級 has a soft quota for Last Possible Number. The streak is kept in memory and in `localStorage` (`mysudok.beginnerNonLpnStreak`). After 3 consecutive 初級 puzzles whose `maxTechnique` is not `last_possible_number`, the next 初級 search carves toward exactly that technique (still scanning #1 → #2 → #3, with #2 digit → cell and #3 cell → digit). If that carve misses, any #1–#3 puzzle is accepted and the streak continues. A #3 result resets the streak. 中級 and 高級 are not part of this quota.
-6. Retry up to 40 seeds. If none match, generation throws and the UI says so.
-7. Every dealt puzzle — a generated 初級／中級／高級 grid, and a practice-bank draw — then passes through `applyDealMorph` in [`src/engine/morph.ts`](src/engine/morph.ts). The morph permutes digits 1–9, permutes the three bands and the rows inside each band, and permutes the three stacks and the columns inside each stack. It does not transpose or reflect. Givens and the solution share one map. `maxTechnique` stays the label from `generate` or from the bank `hardest` id. The morph is not written back into the bank, and the app does not analyze the grid again.
+4. 初級 keeps the puzzle only when every step is #1–#3. 中級 keeps it when the hardest step is #5–#10. 高級 keeps it when the hardest step is #11–#13 (`pointing_pairs`, `pointing_triples`, `x_wing`) and rejects #14+. 專家 keeps it when the hardest step is #14 or #15 (`y_wing`, `swordfish`). An attempt may add or remove clues from that unique puzzle until the rating lands in the band.
+5. 初級 has a soft quota for Last Possible Number. The streak is kept in memory and in `localStorage` (`mysudok.beginnerNonLpnStreak`). After 3 consecutive 初級 puzzles whose `maxTechnique` is not `last_possible_number`, the next 初級 search carves toward exactly that technique (still scanning #1 → #2 → #3, with #2 digit → cell and #3 cell → digit). If that carve misses, any #1–#3 puzzle is accepted and the streak continues. A #3 result resets the streak. 中級, 高級, and 專家 are not part of this quota.
+6. Retry up to 40 seeds. If none match, generation throws and the UI says so. The 專家 product path does not rely on this loop: it deals from the bank first, and the fallback passes a smaller `maxAttempts` so the wait stays bounded.
+7. Every dealt puzzle — a generated 初級／中級／高級 grid, a short 專家 regenerate, and an expert bank draw — then passes through `applyDealMorph` in [`src/engine/morph.ts`](src/engine/morph.ts). The morph permutes digits 1–9, permutes the three bands and the rows inside each band, and permutes the three stacks and the columns inside each stack. It does not transpose or reflect. Givens and the solution share one map. `maxTechnique` stays the label from `generate` or from the bank `hardest` id. The morph is not written back into the bank, and the app does not analyze the grid again.
 
 Clue count is only a side effect of carving a grid. The accept/reject decision is the technique rating.
 
-### Technique practice
+### Expert bank
 
-The practice bank is a static JSONL asset (1300 puzzles, 100 for each open technique). The page fetches it from the Vite `base` (`/Mysudok/`). Runtime does not run Python and does not download puzzles from another origin. `parseBank` / `filterByHardest` / `drawEntry` live in [`src/engine/bank.ts`](src/engine/bank.ts). A bank row becomes the existing `Puzzle` (`givens` and `solution` as `number[][]`, `maxTechnique` = `hardest`, `unique: true`) only after the deal-time morph. The header shows the Title Case name via `techniqueTitle`.
+The static JSONL asset (1300 puzzles) stays on disk and is not a practice mode. The page can fetch it from the Vite `base` (`/Mysudok/`). Runtime does not run Python and does not download puzzles from another origin. `parseBank` / `filterByHardest` / `drawEntry` live in [`src/engine/bank.ts`](src/engine/bank.ts). [`src/engine/expert-deal.ts`](src/engine/expert-deal.ts) keeps the rows whose `hardest` is `y_wing` or `swordfish` (200 puzzles, `band: "expert"`). A bank row becomes the existing `Puzzle` (`givens` and `solution` as `number[][]`, `maxTechnique` = `hardest`, `unique: true`) only after the deal-time morph. The in-play header shows the difficulty name **專家** and the Title Case technique via `techniqueTitle`. Hints still scan #1–#15.
 
 ### Technique map
 
@@ -114,14 +114,16 @@ The practice bank is a static JSONL asset (1300 puzzles, 100 for each open techn
 | 11 | `pointing_pairs` | Pointing Pairs | 高級 |
 | 12 | `pointing_triples` | Pointing Triples | 高級 |
 | 13 | `x_wing` | X-Wing | 高級 |
-| 14 | `y_wing` | Y-Wing | 高級 |
-| 15 | `swordfish` | Swordfish | 高級 |
+| 14 | `y_wing` | Y-Wing | 專家 |
+| 15 | `swordfish` | Swordfish | 專家 |
 
 初級: `maxTechnique` is only `last_free_cell`, `last_remaining_cell`, or `last_possible_number`. Those detectors read placed digits. They are not the old naked/hidden single aliases.
 
 中級: `maxTechnique` is one of #5–#10. The solve used an intermediate technique and did not need #11+.
 
-高級: the solve path includes at least one of #11–#15. The hint button teaches those clears after #1–#10: Pointing Pairs and Pointing Triples (box → line, then line → box claiming under the same names), X-Wing, Y-Wing, and Swordfish. Box-line reduction is applied and counted as Pointing Pairs or Pointing Triples.
+高級: `maxTechnique` is one of #11–#13. A puzzle whose hardest step is Y-Wing or Swordfish is not 高級. The hint button still teaches the clears after #1–#10, including on an 專家 game: Pointing Pairs and Pointing Triples (box → line, then line → box claiming under the same names), X-Wing, Y-Wing, and Swordfish. Box-line reduction is applied and counted as Pointing Pairs or Pointing Triples.
+
+專家: `maxTechnique` is `y_wing` or `swordfish`. The home and in-play difficulty name is **專家**.
 
 Anything still unsolved after Swordfish is rejected.
 

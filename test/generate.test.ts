@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { countSolutions } from "openzeloku";
 import {
+  acceptsDifficulty,
   BEGINNER_LPN_STREAK,
   createBeginnerQuota,
   generate,
@@ -12,17 +13,27 @@ import {
   analyze,
   isAdvancedTechnique,
   isBeginnerTechnique,
+  isExpertTechnique,
   isIntermediateTechnique,
   rowsToFlat,
+  TECHNIQUE_ORDER,
+  techniqueRank,
   type AppliedTechnique,
 } from "../src/engine/techniques.ts";
 
 function assertUnique(difficulty: Difficulty, maxTechnique: string) {
   assert.equal(typeof maxTechnique, "string");
   const technique = maxTechnique as AppliedTechnique;
+  assert.equal(acceptsDifficulty(difficulty, technique), true);
   if (difficulty === "初級") assert.equal(isBeginnerTechnique(technique), true);
   else if (difficulty === "中級") assert.equal(isIntermediateTechnique(technique), true);
-  else assert.equal(isAdvancedTechnique(technique), true);
+  else if (difficulty === "高級") {
+    assert.equal(isAdvancedTechnique(technique), true);
+    assert.equal(isExpertTechnique(technique), false);
+  } else {
+    assert.equal(isExpertTechnique(technique), true);
+    assert.equal(isAdvancedTechnique(technique), false);
+  }
 }
 
 async function assertPuzzle(difficulty: Difficulty, quota?: BeginnerQuota) {
@@ -55,8 +66,14 @@ async function assertPuzzle(difficulty: Difficulty, quota?: BeginnerQuota) {
   } else if (difficulty === "中級") {
     assert.ok(analysis.techniques.some((id) => isIntermediateTechnique(id)));
     assert.ok(analysis.techniques.every((id) => !isAdvancedTechnique(id)));
-  } else {
+    assert.ok(analysis.techniques.every((id) => !isExpertTechnique(id)));
+  } else if (difficulty === "高級") {
     assert.ok(analysis.techniques.some((id) => isAdvancedTechnique(id)));
+    assert.ok(analysis.techniques.every((id) => !isExpertTechnique(id)));
+    assert.equal(["y_wing", "swordfish"].includes(puzzle.maxTechnique), false);
+  } else {
+    assert.ok(isExpertTechnique(puzzle.maxTechnique as AppliedTechnique));
+    assert.equal(["y_wing", "swordfish"].includes(puzzle.maxTechnique), true);
   }
 }
 
@@ -106,6 +123,21 @@ test("generate 中級 returns a unique #5–#10 puzzle", { timeout: 40_000 }, as
   await assertPuzzle("中級", createBeginnerQuota());
 });
 
-test("generate 高級 returns a unique puzzle with an advanced step", { timeout: 60_000 }, async () => {
+test("generate 高級 returns a unique #11–#13 puzzle and rejects #14+", { timeout: 60_000 }, async () => {
   await assertPuzzle("高級");
+});
+
+test("高級 accepts only #11–#13 and 專家 accepts only #14–#15", () => {
+  for (const id of TECHNIQUE_ORDER) {
+    const rank = techniqueRank(id);
+    assert.equal(acceptsDifficulty("初級", id), rank <= 3);
+    assert.equal(acceptsDifficulty("中級", id), rank >= 5 && rank <= 10);
+    assert.equal(acceptsDifficulty("高級", id), rank >= 11 && rank <= 13);
+    assert.equal(acceptsDifficulty("專家", id), id === "y_wing" || id === "swordfish");
+  }
+  assert.equal(acceptsDifficulty("高級", "y_wing"), false);
+  assert.equal(acceptsDifficulty("高級", "swordfish"), false);
+  assert.equal(acceptsDifficulty("專家", "x_wing"), false);
+  assert.equal(acceptsDifficulty("專家", "pointing_pairs"), false);
+  assert.equal(acceptsDifficulty("專家", "pointing_triples"), false);
 });

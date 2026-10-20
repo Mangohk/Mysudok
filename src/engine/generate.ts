@@ -4,6 +4,7 @@ import {
   flatToRows,
   isAdvancedTechnique,
   isBeginnerTechnique,
+  isExpertTechnique,
   isIntermediateTechnique,
   sameFlat,
   techniqueRank,
@@ -18,7 +19,8 @@ import {
  * | ---- | ------------ | ---- |
  * | 初級 | #1–#3 | 只用 Last Free Cell／Last Remaining Cell／Last Possible Number |
  * | 中級 | #5–#10 | 會用到中級招，而且唔使 #11+ |
- * | 高級 | #11–#15 | 至少一步指向、Wing 或魚形 |
+ * | 高級 | #11–#13 | hardest 係 Pointing Pairs／Pointing Triples／X-Wing；拒 #14+ |
+ * | 專家 | #14–#15 | hardest 係 Y-Wing 或 Swordfish |
  *
  * openzeloku supplies a unique seed. Each attempt may add or remove clues
  * while uniqueness holds, and keeps the grid only when `maxTechnique` sits
@@ -28,7 +30,11 @@ import {
  * appear. After {@link BEGINNER_LPN_STREAK} consecutive 初級 puzzles whose
  * highest technique is not Last Possible Number, the next 初級 search carves
  * toward exactly that technique. If the carve misses, any #1–#3 puzzle is
- * still accepted. 中級 and 高級 are not biased.
+ * still accepted. 中級, 高級, and 專家 are not biased.
+ *
+ * 專家 product deals are bank-first. This generator is only the short
+ * fallback: pass `{ maxAttempts }` below {@link MAX_ATTEMPTS}. It never
+ * loops past that cap.
  */
 
 export type Difficulty = TechniqueBand;
@@ -140,7 +146,8 @@ interface Band {
 const BAND: Record<Difficulty, Band> = {
   初級: { min: 1, max: 3 },
   中級: { min: 5, max: 10 },
-  高級: { min: 11, max: 15 },
+  高級: { min: 11, max: 13 },
+  專家: { min: 14, max: 15 },
 };
 
 /** Exact #3. Used only when the 初級 soft quota is asking for Last Possible Number. */
@@ -259,12 +266,19 @@ const SEED: Record<Difficulty, "easy" | "medium" | "hard" | "expert"> = {
   初級: "easy",
   中級: "medium",
   高級: "expert",
+  專家: "expert",
 };
 
 function matchesDifficulty(technique: AppliedTechnique, difficulty: Difficulty): boolean {
   if (difficulty === "初級") return isBeginnerTechnique(technique);
   if (difficulty === "中級") return isIntermediateTechnique(technique);
-  return isAdvancedTechnique(technique);
+  if (difficulty === "高級") return isAdvancedTechnique(technique);
+  return isExpertTechnique(technique);
+}
+
+/** True when `technique` is the hardest step this difficulty is allowed to keep. */
+export function acceptsDifficulty(difficulty: Difficulty, technique: AppliedTechnique): boolean {
+  return matchesDifficulty(technique, difficulty) && inBand(technique, BAND[difficulty]);
 }
 
 async function tryDifficulty(difficulty: Difficulty, band: Band): Promise<Puzzle | null> {
@@ -274,8 +288,8 @@ async function tryDifficulty(difficulty: Difficulty, band: Band): Promise<Puzzle
   return carve(raw.grid.slice(), counted.solution, band);
 }
 
-async function search(difficulty: Difficulty, band: Band): Promise<Puzzle | null> {
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+async function search(difficulty: Difficulty, band: Band, maxAttempts: number): Promise<Puzzle | null> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const puzzle = await tryDifficulty(difficulty, band);
     if (puzzle && matchesDifficulty(puzzle.maxTechnique as AppliedTechnique, difficulty)) return puzzle;
     await yieldToUi();
@@ -283,20 +297,25 @@ async function search(difficulty: Difficulty, band: Band): Promise<Puzzle | null
   return null;
 }
 
-export async function generate(difficulty: Difficulty, quota: BeginnerQuota = sessionQuota): Promise<Puzzle> {
+export async function generate(
+  difficulty: Difficulty,
+  quota: BeginnerQuota = sessionQuota,
+  options: { maxAttempts?: number } = {},
+): Promise<Puzzle> {
+  const maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   await yieldToUi();
   const preferLastPossible = difficulty === "初級" && quota.prefersLastPossible();
   if (preferLastPossible) {
-    const exact = await search(difficulty, LAST_POSSIBLE_BAND);
+    const exact = await search(difficulty, LAST_POSSIBLE_BAND, maxAttempts);
     if (exact) {
       quota.note(exact.maxTechnique as AppliedTechnique);
       return exact;
     }
   }
-  const puzzle = await search(difficulty, BAND[difficulty]);
+  const puzzle = await search(difficulty, BAND[difficulty], maxAttempts);
   if (puzzle) {
     if (difficulty === "初級") quota.note(puzzle.maxTechnique as AppliedTechnique);
     return puzzle;
   }
-  throw new GenerationFailedError(difficulty, MAX_ATTEMPTS);
+  throw new GenerationFailedError(difficulty, maxAttempts);
 }

@@ -2,10 +2,11 @@ import type { Puzzle } from "./generate";
 import { flatToRows, TECHNIQUE_LABEL, TECHNIQUE_ORDER, type AppliedTechnique } from "./techniques";
 
 /**
- * Static practice bank. One JSONL row per puzzle, shipped at
+ * Static puzzle bank. One JSONL row per puzzle, shipped at
  * `public/bank-by-hardest.jsonl` and requested with the Vite base
  * (`/Mysudok/`). Filtering is by `hardest`, not by membership in `techniques`.
- * Notes and Obvious Singles stay closed.
+ * 專家 draws rows whose `hardest` is `y_wing` or `swordfish`. The technique
+ * picker is not part of the product; notes and obvious singles stay closed.
  */
 
 export const BANK_FILENAME = "bank-by-hardest.jsonl";
@@ -180,10 +181,19 @@ export function resetPracticeBankCache(): void {
   pending = null;
 }
 
+/** Bound the asset fetch so a stuck request cannot sit on the loading screen. */
+const BANK_LOAD_MS = 8_000;
+
 async function fetchBankText(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`題庫載入失敗（${response.status}）`);
-  return response.text();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BANK_LOAD_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`題庫載入失敗（${response.status}）`);
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
