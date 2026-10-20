@@ -533,10 +533,39 @@ export function confirmCopy(kind: Play["confirm"]): string {
   return "";
 }
 
-function boardHtml(play: Play): string {
+/** Fields the board renderer reads for same-digit and note highlights. */
+export interface BoardMarkup {
+  values: number[];
+  notes: number[];
+  givens: boolean[];
+  solution: number[];
+  selectedDigit: number | null;
+  selectedCell: number | null;
+  pencilMode: boolean;
+  wrongMarks: number[] | null;
+  hintStep: HintView["step"];
+  hintIndexes: number[];
+  hintTechnique: string | null;
+}
+
+function markupBoard(play: BoardMarkup): BoardInput {
+  return {
+    values: play.values,
+    notes: play.notes,
+    clues: play.values,
+    givens: play.givens,
+    solution: play.solution,
+    selectedDigit: play.selectedDigit,
+    selectedCell: play.selectedCell,
+    pencilMode: play.pencilMode,
+    undo: [],
+  };
+}
+
+export function boardHtml(play: BoardMarkup): string {
   const conflicts = conflictMask(play.values);
   const armed = play.selectedDigit;
-  const highlight = armed !== null && !isDigitDone(play, armed);
+  const highlight = armed !== null && !isDigitDone(markupBoard(play), armed);
   let html = '<div class="board" role="grid" aria-label="數獨棋盤">';
   for (let index = 0; index < 81; index++) {
     const value = play.values[index];
@@ -548,8 +577,18 @@ function boardHtml(play: Play): string {
     const hintClasses = conflicts[index]
       ? []
       : hintCellClasses(play.hintTechnique, play.hintStep, play.hintIndexes, index, value);
+    const canHighlight = !conflicts[index] && !classes.includes("wrong") && highlight;
     if (hintClasses.length > 0) classes.push(...hintClasses);
-    else if (!conflicts[index] && !classes.includes("wrong") && highlight && value === armed) classes.push("same");
+    else if (canHighlight && value === armed) classes.push("same");
+    else if (
+      canHighlight &&
+      play.pencilMode &&
+      value === 0 &&
+      armed !== null &&
+      (play.notes[index] & (1 << armed)) !== 0
+    ) {
+      classes.push("same-note");
+    }
     const thickRight = (index + 1) % 9 !== 0 && (index + 1) % 3 === 0;
     const row = Math.floor(index / 9);
     const thickBottom = row % 3 === 2 && row !== 8;
