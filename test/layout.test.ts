@@ -141,12 +141,15 @@ test("digit pad slots stay 1 through 9 in portrait and landscape", () => {
   const pad = ruleBody("\\.pad", portrait);
   assert.match(pad, /grid-template-columns:\s*repeat\(\s*9\s*,\s*1fr\s*\)/);
   assert.doesNotMatch(pad, /grid-template-rows\s*:/);
-  assert.doesNotMatch(ruleBody("\\.pad button", portrait), /\border\s*:/);
+  const padButton = ruleBody("\\.pad button", portrait);
+  assert.doesNotMatch(padButton, /\border\s*:/);
+  assert.match(padButton, /margin:\s*0\b/);
 
   for (let digit = 1; digit <= 9; digit++) {
     const cell = ruleBody(String.raw`\.pad button\[data-digit="${digit}"\]`, portrait);
     assert.match(cell, new RegExp(String.raw`order:\s*${digit}\b`));
-    assert.doesNotMatch(cell, /grid-(row|column|area)\s*:/);
+    assert.match(cell, /grid-row:\s*1\b/);
+    assert.match(cell, new RegExp(String.raw`grid-column:\s*${digit}\b`));
   }
 
   const landscape = landscapeRail();
@@ -154,7 +157,13 @@ test("digit pad slots stay 1 through 9 in portrait and landscape", () => {
   assert.match(railPad, /grid-template-columns:\s*repeat\(\s*3\s*,\s*minmax\(\s*44pt\s*,\s*1fr\s*\)\s*\)/);
   assert.match(railPad, /grid-template-rows:\s*repeat\(\s*3\s*,\s*minmax\(\s*44pt\s*,\s*1fr\s*\)\s*\)/);
   assert.doesNotMatch(ruleBody(String.raw`\.play-rail \.pad button`, landscape), /\border\s*:/);
-  assert.doesNotMatch(ruleBody(String.raw`\.play-rail \.pad button`, landscape), /grid-(row|column|area)\s*:/);
+  for (let digit = 1; digit <= 9; digit++) {
+    const row = Math.floor((digit - 1) / 3) + 1;
+    const col = ((digit - 1) % 3) + 1;
+    const cell = ruleBody(String.raw`\.play-rail \.pad button\[data-digit="${digit}"\]`, landscape);
+    assert.match(cell, new RegExp(String.raw`grid-row:\s*${row}\b`));
+    assert.match(cell, new RegExp(String.raw`grid-column:\s*${col}\b`));
+  }
 
   const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const orderRules = [...stripped.matchAll(/([^{]+)\{([^}]*\border\s*:[^}]*)\}/g)];
