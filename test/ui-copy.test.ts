@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
-import { CEILING_LABEL, DIGIT_FIRST_COACH, HOME_BLURB, SKILL_REFERENCE, TECHNIQUE_MAP_HREF, playStatusMarkup, skillReferenceMarkup } from "../src/app.ts";
+import { CEILING_LABEL, DIGIT_FIRST_COACH, HOME_BLURB, SKILL_REFERENCE, TECHNIQUE_MAP_HREF, confirmCopy, playStatusMarkup, skillReferenceMarkup } from "../src/app.ts";
 
 test("home blurb names the three beginner techniques, including 唯一數字", () => {
   assert.match(HOME_BLURB.初級, /最後一格/);
@@ -59,6 +60,77 @@ test("hint status wraps English technique names without a soft hyphen", () => {
   assert.match(hinted, /class="status"/);
   assert.equal(hinted.includes("\u00ad"), false);
   assert.equal(hinted.includes(CEILING_LABEL), false);
+});
+
+test("top actions are 重開, 新局, 返回 and confirm anchors under them", () => {
+  const app = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
+  const topStart = app.indexOf('<div class="top-actions">');
+  const headerEnd = app.indexOf("</header>", topStart);
+  assert.ok(topStart >= 0 && headerEnd > topStart);
+  const top = app.slice(topStart, headerEnd);
+  const restartAt = top.indexOf('data-action="restart"');
+  const newAt = top.indexOf('data-action="new"');
+  const backAt = top.indexOf('data-action="back"');
+  assert.ok(restartAt >= 0 && restartAt < newAt && newAt < backAt);
+  assert.match(top, /data-action="restart">重開</);
+  assert.match(top, /data-action="new">新局</);
+  assert.match(top, /data-action="back">返回</);
+  assert.ok(top.includes("${confirm}"));
+  assert.ok(top.indexOf("${confirm}") > backAt);
+
+  const railStart = app.indexOf('<div class="play-rail">');
+  const helpAt = app.indexOf('<p class="help">', railStart);
+  assert.ok(railStart >= 0 && helpAt > railStart);
+  const rail = app.slice(railStart, helpAt);
+  assert.equal(rail.includes("${confirm}"), false);
+  assert.equal(rail.includes('class="confirm"'), false);
+  assert.match(rail, /data-action="notes"/);
+  assert.match(rail, /data-action="hint"/);
+  assert.match(rail, /data-action="menu"/);
+
+  assert.match(app, /role="alertdialog" aria-label="確認"/);
+  assert.match(app, /data-action="confirm-yes">確定</);
+  assert.match(app, /data-action="confirm-no">繼續</);
+  assert.match(css, /\.top-actions > \.confirm\s*\{/);
+  assert.equal(css.includes(".play-rail > .confirm"), false);
+  assert.equal(css.includes("position: fixed"), false);
+});
+
+test("dirty top actions confirm with the locked copy and a clean board does not", () => {
+  assert.equal(confirmCopy("restart"), "重開並放棄而家進度？");
+  assert.equal(confirmCopy("new"), "開新局並放棄這一題？");
+  assert.equal(confirmCopy("back"), "返回並放棄這一題？");
+  assert.equal(confirmCopy("check"), "會對答案標出唔啱嘅格（求救），唔會改你嘅盤。確定？");
+  assert.equal(confirmCopy(null), "");
+
+  const app = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
+  const dirty = app.slice(app.indexOf("function dirty("), app.indexOf("function onClick"));
+  assert.match(dirty, /!play\.givens\[index\] && value !== 0/);
+  assert.match(dirty, /play\.notes\.some\(\(note\) => note !== 0\)/);
+
+  const back = app.slice(app.indexOf('if (action === "back")'), app.indexOf('if (action === "new" || action === "again")'));
+  assert.match(back, /dirty\(phase\.play\) && !phase\.play\.complete/);
+  assert.match(back, /phase\.play\.confirm = "back"/);
+
+  const fresh = app.slice(app.indexOf('if (action === "new" || action === "again")'), app.indexOf('if (action === "restart")'));
+  assert.match(fresh, /action === "new" && dirty\(phase\.play\) && !phase\.play\.complete/);
+  assert.match(fresh, /phase\.play\.confirm = "new"/);
+
+  const restart = app.slice(app.indexOf('if (action === "restart")'), app.indexOf('if (action === "confirm-no")'));
+  assert.match(restart, /if \(dirty\(phase\.play\)\)/);
+  assert.match(restart, /phase\.play\.confirm = "restart"/);
+  assert.match(restart, /applyRestart\(phase\.play\)/);
+
+  const dismiss = app.slice(app.indexOf('if (action === "confirm-no")'), app.indexOf('if (action === "confirm-yes")'));
+  assert.match(dismiss, /phase\.play\.confirm = null/);
+  const accept = app.slice(app.indexOf('if (action === "confirm-yes")'), app.indexOf("if (phase.kind !== \"play\" || phase.play.confirm)"));
+  assert.match(accept, /choice === "back"/);
+  assert.match(accept, /choice === "new"/);
+  assert.match(accept, /choice === "restart"/);
+  assert.match(accept, /leavePlay\(\)/);
+  assert.match(accept, /redraw\(play\)/);
+  assert.match(accept, /applyRestart\(phase\.play\)/);
 });
 
 test("completed games drop the digit-first coach and keep 最高技巧 apart from hint copy", () => {

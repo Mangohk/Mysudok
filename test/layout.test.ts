@@ -79,14 +79,13 @@ test("pencil notes cannot raise a row above an empty row", () => {
   assert.doesNotMatch(notesFont, /inset\s*:/);
 });
 
-test("landscape right rail A keeps confirm, done, status, pad, tools", () => {
+test("landscape right rail A keeps done, status, pad, tools", () => {
   const landscape = css.split("@media").find((block) => {
     const header = block.slice(0, block.indexOf("{"));
     return /orientation:\s*landscape/.test(header) && /min-width:\s*900px/.test(header) && !/max-height/.test(header);
   });
   assert.ok(landscape);
   const orders: Array<[string, string]> = [
-    [String.raw`\.play-rail > \.confirm`, "0"],
     [String.raw`\.play-rail > \.done`, "1"],
     [String.raw`\.play-rail > \.status`, "2"],
     [String.raw`\.play-rail > \.pad`, "3"],
@@ -95,6 +94,8 @@ test("landscape right rail A keeps confirm, done, status, pad, tools", () => {
   for (const [selector, order] of orders) {
     assert.match(ruleBody(selector, landscape), new RegExp(String.raw`order:\s*${order}\b`));
   }
+  assert.equal(landscape.includes(".play-rail > .confirm"), false);
+  assert.equal(css.includes(".play-rail > .confirm"), false);
   assert.equal(landscape.includes("undo-bar"), false);
   assert.equal(css.includes("undo-bar"), false);
 });
