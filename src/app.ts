@@ -23,7 +23,6 @@ import {
   hintButtonLabel,
   hintCellClasses,
   pressHint,
-  techniqueTitle,
   type HintAction,
   type HintView,
 } from "./engine/hint";
@@ -57,9 +56,6 @@ const appRoot = { el: null as HTMLElement | null };
 let phase: Phase = { kind: "home" };
 let requestId = 0;
 
-/** Puzzle ceiling. Kept apart from the technique named in the hint status. */
-export const CEILING_LABEL = "最高技巧";
-
 /** Digit-first coach. Hidden once the puzzle is complete. */
 export const DIGIT_FIRST_COACH = "先點數字，再點格子。";
 
@@ -70,23 +66,17 @@ export const HOME_BLURB: Record<Difficulty, string> = {
   專家: "Y-Wing、Swordfish",
 };
 
-/** Difficulty eyebrow. Shown on the completion header, including 專家. */
-export function playEyebrowMarkup(difficulty: Difficulty): string {
-  return `<p class="eyebrow" data-difficulty="${esc(difficulty)}">${esc(difficulty)}</p>`;
-}
-
 /**
- * Top-left status. Blank while the puzzle is unfinished.
- * The completion screen keeps the difficulty, ceiling, technique, and cells left.
+ * Top-left status. Empty while a puzzle is unfinished and after it is complete.
+ * Difficulty, max technique, and cells left stay off this header.
  */
 export function playTopCopyMarkup(
-  complete: boolean,
-  difficulty: Difficulty,
-  technique: string,
-  remaining: number,
+  _complete: boolean,
+  _difficulty: Difficulty,
+  _technique: string,
+  _remaining: number,
 ): string {
-  if (!complete) return "";
-  return `<div class="top-copy">${playEyebrowMarkup(difficulty)}<p class="ceiling-kicker">${esc(CEILING_LABEL)}</p><h1>${esc(technique)}</h1><p class="left">仲剩 ${remaining} 格</p></div>`;
+  return "";
 }
 
 /** Status under the board. The coach line is only for an unfinished, idle game. */
@@ -123,43 +113,11 @@ function statusTextHtml(text: string): string {
   return html;
 }
 
-/**
- * Home list for #1–#10. Names and URLs are the locked sudoku.com table.
- * #11+ stays off this list.
- */
-export const SKILL_REFERENCE: readonly { rank: number; name: string; href: string }[] = [
-  { rank: 1, name: "Last free cell", href: "https://sudoku.com/sudoku-rules/last-free-cell/" },
-  { rank: 2, name: "Last remaining cell", href: "https://sudoku.com/sudoku-rules/last-remaining-cell/" },
-  { rank: 3, name: "Last possible number", href: "https://sudoku.com/sudoku-rules/last-possible-number/" },
-  { rank: 4, name: "Notes in Sudoku", href: "https://sudoku.com/sudoku-rules/notes-in-sudoku/" },
-  { rank: 5, name: "Obvious singles", href: "https://sudoku.com/sudoku-rules/obvious-singles/" },
-  { rank: 6, name: "Obvious pairs", href: "https://sudoku.com/sudoku-rules/obvious-pairs/" },
-  { rank: 7, name: "Obvious triples", href: "https://sudoku.com/sudoku-rules/obvious-triples/" },
-  { rank: 8, name: "Hidden singles", href: "https://sudoku.com/sudoku-rules/hidden-singles/" },
-  { rank: 9, name: "Hidden pairs", href: "https://sudoku.com/sudoku-rules/hidden-pairs/" },
-  { rank: 10, name: "Hidden triples", href: "https://sudoku.com/sudoku-rules/hidden-triples/" },
-];
-
-/** Secondary link. The primary control on each row is the sudoku.com Reference. */
-export const TECHNIQUE_MAP_HREF = "https://github.com/Mangohk/Mysudok#technique-map";
-
-export function skillReferenceMarkup(): string {
-  const items = SKILL_REFERENCE.map(
-    (skill) =>
-      `<li><span class="skill-rank">#${skill.rank}</span><span class="skill-name">${esc(skill.name)}</span><a href="${esc(skill.href)}" target="_blank" rel="noopener">Reference</a></li>`,
-  ).join("");
-  return `<section class="skills" aria-label="技巧參考"><h2>技巧</h2><ol class="skill-list">${items}</ol><p class="skill-map">GitHub technique map <a href="${esc(TECHNIQUE_MAP_HREF)}" target="_blank" rel="noopener">Technique map</a></p></section>`;
-}
-
 export function mount(root: HTMLElement): void {
   appRoot.el = root;
   root.addEventListener("click", onClick);
   window.addEventListener("keydown", onKeydown);
   render();
-}
-
-function techniqueLabel(id: string): string {
-  return techniqueTitle(id);
 }
 
 function hintViewOf(play: Play): HintView {
@@ -643,7 +601,6 @@ function padHtml(play: Play): string {
 }
 
 function playHtml(play: Play): string {
-  const label = techniqueLabel(play.puzzle.maxTechnique);
   const banner = play.hintNote ?? play.candidateNote ?? play.checkNote;
   const status = playStatusMarkup(play.complete, banner);
   const hintLabel = hintButtonLabel(play.hintStep, play.hintTechnique);
@@ -664,8 +621,6 @@ function playHtml(play: Play): string {
   const done = play.complete
     ? `<div class="done" role="dialog" aria-labelledby="done-title">
         <h2 id="done-title">完成</h2>
-        <p class="ceiling-kicker">${esc(CEILING_LABEL)}</p>
-        <p class="done-technique">${esc(label)}</p>
         <div class="done-actions">
           <button type="button" class="primary" data-action="again">再來一題</button>
           <button type="button" data-action="back">返回</button>
@@ -674,7 +629,7 @@ function playHtml(play: Play): string {
     : "";
   return `<section class="play" data-difficulty="${esc(play.difficulty)}">
     <header class="top">
-      ${playTopCopyMarkup(play.complete, play.difficulty, label, emptyCellCount(play))}
+      ${playTopCopyMarkup(play.complete, play.difficulty, play.puzzle.maxTechnique, emptyCellCount(play))}
       <div class="top-actions">
         <div class="top-action-row">
           <button type="button" data-action="restart">重開</button>
@@ -735,7 +690,6 @@ export function homeHtml(): string {
         <span class="blurb">${esc(HOME_BLURB.專家)}</span>
       </button>
     </div>
-    ${skillReferenceMarkup()}
     <p class="credit">題目引擎 <a href="https://github.com/mr-girff/openzeloku">openzeloku</a>（MIT）</p>
   </section>`;
 }

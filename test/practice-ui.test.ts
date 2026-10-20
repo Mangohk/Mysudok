@@ -31,15 +31,14 @@ test("home stacks four full-width difficulties and has no practice entry", () =>
   assert.match(choice?.[1] ?? "", /width:\s*100%/);
 });
 
-test("completion header names 專家 and in-play copy stays blank", () => {
+test("top copy stays blank in play and on completion, including 專家", () => {
   assert.equal(playTopCopyMarkup(false, "專家", "Y-Wing", 20), "");
-  const html = playTopCopyMarkup(true, "專家", "Y-Wing", 0);
-  assert.match(html, /class="eyebrow"/);
-  assert.match(html, /data-difficulty="專家"/);
-  assert.match(html, />專家</);
-  assert.equal(html.includes("練習"), false);
-  assert.match(playTopCopyMarkup(true, "高級", "X-Wing", 0), />高級</);
-  assert.equal(playTopCopyMarkup(true, "高級", "X-Wing", 0).includes("專家"), false);
+  assert.equal(playTopCopyMarkup(true, "專家", "Y-Wing", 0), "");
+  assert.equal(playTopCopyMarkup(true, "高級", "X-Wing", 0), "");
+  const home = homeHtml();
+  assert.match(home, /data-difficulty="專家"/);
+  assert.match(home, /data-difficulty="高級"/);
+  assert.equal(home.includes("練習"), false);
 });
 
 test("difficulty deals morph live puzzles and expert deals morph the bank", () => {
