@@ -83,6 +83,20 @@ test("landscape right rail A keeps confirm, done, status, pad, tools, undo", () 
   }
 });
 
+test("status wraps anywhere in portrait and in the landscape rail", () => {
+  const portrait = css.split("@media")[0] ?? "";
+  assert.match(ruleBody("\\.status", portrait), /overflow-wrap:\s*anywhere/);
+  assert.match(ruleBody("\\.status \\.tech-name", portrait), /overflow-wrap:\s*anywhere/);
+  const landscape = css.split("@media").find((block) => {
+    const header = block.slice(0, block.indexOf("{"));
+    return /orientation:\s*landscape/.test(header) && /min-width:\s*900px/.test(header) && !/max-height/.test(header);
+  });
+  assert.ok(landscape);
+  assert.match(ruleBody(String.raw`\.play-rail \.status`, landscape), /overflow-wrap:\s*anywhere/);
+  assert.equal(css.includes("\u00ad"), false);
+  assert.doesNotMatch(css, /&shy;|soft\s*hyphen/i);
+});
+
 test("landscape board side is min(available width, available height)", () => {
   const landscape = css.split("@media").find((block) => {
     const header = block.slice(0, block.indexOf("{"));

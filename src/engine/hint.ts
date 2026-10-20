@@ -1,4 +1,5 @@
 import { lastFreeEvidence, lastPossibleEvidence, lastRemainingEvidence } from "../board-input";
+import { scanOrderFromPuzzle } from "./scan-order";
 import {
   findHiddenSet,
   findHiddenSingle,
@@ -22,7 +23,7 @@ import {
  */
 export type HintAction =
   | { kind: "fill"; value: number; evidence: number[]; unit: UnitKind | null }
-  | { kind: "clear"; digits: number[]; indexes: number[]; keep: number[] }
+  | { kind: "clear"; digits: number[]; indexes: number[]; keep: number[]; unit: UnitKind }
   | { kind: "notes" };
 
 export interface StepHint {
@@ -33,7 +34,7 @@ export interface StepHint {
 
 const FILL3 = new Set(["last_free_cell", "last_remaining_cell", "last_possible_number"]);
 const FILL4 = new Set(["obvious_singles", "hidden_singles"]);
-const CLEAR3 = new Set(["obvious_pairs", "obvious_triples", "hidden_pairs", "hidden_triples"]);
+const CLEAR4 = new Set(["obvious_pairs", "obvious_triples", "hidden_pairs", "hidden_triples"]);
 
 const REASONS: Record<string, string> = {
   last_free_cell: "只剩這一格空白",
@@ -41,7 +42,7 @@ const REASONS: Record<string, string> = {
   last_possible_number: "呢行、列、宮合埋會剩低一個數",
   obvious_singles: "呢一格只剩一個候選",
   obvious_pairs: "兩格一齊只剩兩個候選",
-  obvious_triples: "三格一齊只剩三個候選",
+  obvious_triples: "三格合共只剩三個候選",
   hidden_singles: "呢個數字喺呢一區只可以放喺呢一格",
   hidden_pairs: "兩個數字喺呢一區只可以放喺兩格",
   hidden_triples: "三個數字喺呢一區只可以放喺三格",
@@ -90,22 +91,29 @@ function clearHint(technique: string, spot: ClearSpot): StepHint {
       digits: spot.digits.slice(),
       indexes: spot.clearIndexes.slice(),
       keep: spot.keep.slice(),
+      unit: spot.unit,
     },
   };
+}
+
+function puzzleOrder(flat: readonly number[], givensFlat?: readonly number[]): readonly number[] {
+  const source = givensFlat && givensFlat.length === flat.length ? givensFlat : flat;
+  return scanOrderFromPuzzle(source);
 }
 
 /**
  * Local hint scan. #1 → #2 → #3, then the Notes gate, then #5 → #10.
  * Does not call openzeloku `nextHint`. #11–#15 are generation thresholds only.
  */
-export function findHint(flat: readonly number[], notes?: readonly number[]): StepHint | null {
+export function findHint(flat: readonly number[], notes?: readonly number[], givensFlat?: readonly number[]): StepHint | null {
   if (flat.length !== 81 || flat.every((value) => value !== 0)) return null;
 
-  const free = findLastFreeCell(flat);
+  const order = puzzleOrder(flat, givensFlat);
+  const free = findLastFreeCell(flat, order);
   if (free) return fillHint("last_free_cell", free);
-  const remaining = findLastRemainingCell(flat);
+  const remaining = findLastRemainingCell(flat, order);
   if (remaining) return fillHint("last_remaining_cell", remaining);
-  const possible = findLastPossibleNumber(flat);
+  const possible = findLastPossibleNumber(flat, order);
   if (possible) return fillHint("last_possible_number", possible);
 
   if (!notesReady(flat, notes)) {
@@ -113,17 +121,17 @@ export function findHint(flat: readonly number[], notes?: readonly number[]): St
   }
 
   const masks = notes ?? [];
-  const obvious = findObviousSingle(flat, masks);
+  const obvious = findObviousSingle(flat, masks, order);
   if (obvious) return fillHint("obvious_singles", obvious);
-  const pair = findObviousSet(flat, masks, 2);
+  const pair = findObviousSet(flat, masks, 2, order);
   if (pair) return clearHint("obvious_pairs", pair);
-  const triple = findObviousSet(flat, masks, 3);
+  const triple = findObviousSet(flat, masks, 3, order);
   if (triple) return clearHint("obvious_triples", triple);
-  const hidden = findHiddenSingle(flat, masks);
+  const hidden = findHiddenSingle(flat, masks, order);
   if (hidden) return fillHint("hidden_singles", hidden);
-  const hiddenPair = findHiddenSet(flat, masks, 2);
+  const hiddenPair = findHiddenSet(flat, masks, 2, order);
   if (hiddenPair) return clearHint("hidden_pairs", hiddenPair);
-  const hiddenTriple = findHiddenSet(flat, masks, 3);
+  const hiddenTriple = findHiddenSet(flat, masks, 3, order);
   if (hiddenTriple) return clearHint("hidden_triples", hiddenTriple);
   return null;
 }
@@ -147,8 +155,9 @@ export function hintLevel1Text(hint: StepHint): string {
   const name = techniqueTitle(hint.technique);
   const reason = reasonFor(hint);
   const where = hint.indexes.length <= 1 ? "這一格" : "呢幾格";
-  const next = "再撳提示睇下一步。";
-  return `${where}可用〔${name}〕：〔${reason}〕。${next}`;
+  const body = `${where}可用〔${name}〕：〔${reason}〕。`;
+  if (CLEAR4.has(hint.technique)) return body;
+  return `${body}再撳提示睇下一步。`;
 }
 
 /** Obvious Singles beat 2: the missing digit, without listing peer cells. */
@@ -182,11 +191,25 @@ export function hintBeginnerReveal(digit: number): string {
   return hintLevel2FillText(digit);
 }
 
+function bracketDigits(digits: readonly number[]): string {
+  return digits.map((digit) => `〔${digit}〕`).join("、");
+}
+
+/** L2 for #6/#7/#9/#10: the locked digits and the house. Numbers appear here first. */
+export function hintClearLockedText(technique: string, digits: readonly number[], unit: UnitKind): string {
+  const house = HOUSE_WORD[unit];
+  const [a, b, c] = digits;
+  if (technique === "obvious_pairs") return `〔${a}〕同〔${b}〕一定分別落喺呢兩格（標呢〔${house}〕）。`;
+  if (technique === "obvious_triples") return `〔${a}〕、〔${b}〕、〔${c}〕一定落喺呢三格（標呢〔${house}〕）。`;
+  if (technique === "hidden_pairs") return `〔${a}〕同〔${b}〕喺呢〔${house}〕只得呢兩格。`;
+  return `〔${a}〕、〔${b}〕、〔${c}〕喺呢〔${house}〕只得呢三格。`;
+}
+
+/** L3 for an elimination: what to clear or keep. Each digit sits in its own brackets. */
 export function hintClearReveal(technique: string, digits: readonly number[], keep: readonly number[]): string {
-  const list = (values: readonly number[]) => values.join("、");
-  if (technique === "hidden_pairs") return `呢兩格刪走其他候選，只留 〔${list(keep)}〕。`;
-  if (technique === "hidden_triples") return `呢三格刪走其他候選，只留 〔${list(keep)}〕。`;
-  return `同單位其他格刪走 〔${list(digits)}〕。`;
+  if (technique === "hidden_pairs") return `呢兩格刪走其他候選只留 ${bracketDigits(keep)}。`;
+  if (technique === "hidden_triples") return `呢三格刪走其他候選只留 ${bracketDigits(keep)}。`;
+  return `同單位其他格刪走 ${bracketDigits(digits)}。`;
 }
 
 export type HintStepIndex = 0 | 1 | 2 | 3 | 4;
@@ -204,10 +227,10 @@ export function hintButtonLabel(step: number, technique: string | null): string 
     if (step >= 3) return "填入";
     return "再提示";
   }
-  if (technique && CLEAR3.has(technique)) {
-    if (step >= 2) return "清候選";
-    if (step === 1) return "再提示";
-    return "提示";
+  if (technique && CLEAR4.has(technique)) {
+    if (step <= 1) return "提示";
+    if (step === 2) return "再提示";
+    return "清候選";
   }
   return step >= 1 ? "再提示" : "提示";
 }
@@ -245,14 +268,20 @@ function stuck(): HintPress {
 /**
  * One press of the hint control.
  * #1–#3 write on the third press. #5 and #8 keep the four-press fill.
- * #6/#7/#9/#10 clear notes on the third press. Notes fills candidates, never a digit.
+ * #6/#7/#9/#10 clear notes on the fourth press. Notes fills candidates, never a digit.
  */
-export function pressHint(view: HintView, values: readonly number[], notes?: readonly number[]): HintPress {
+export function pressHint(
+  view: HintView,
+  values: readonly number[],
+  notes?: readonly number[],
+  givensFlat?: readonly number[],
+): HintPress {
+  const order = puzzleOrder(values, givensFlat);
   if (view.technique === "notes" && view.step >= 1) {
     return { view: emptyHintView(null), write: null, clearNotes: null, fillCandidates: true };
   }
   if (view.technique && FILL3.has(view.technique) && view.action?.kind === "fill" && view.step >= 1) {
-    return pressFill3(view, values, view.action.value);
+    return pressFill3(view, values, view.action.value, order);
   }
   if (view.technique === "obvious_singles" && view.action?.kind === "fill" && view.step >= 1) {
     return pressObviousSingle(view, view.action);
@@ -260,12 +289,12 @@ export function pressHint(view: HintView, values: readonly number[], notes?: rea
   if (view.technique === "hidden_singles" && view.action?.kind === "fill" && view.step >= 1) {
     return pressHiddenSingle(view, view.action);
   }
-  if (view.technique && CLEAR3.has(view.technique) && view.action?.kind === "clear" && view.step >= 1) {
-    return pressClear3(view, view.action);
+  if (view.technique && CLEAR4.has(view.technique) && view.action?.kind === "clear" && view.step >= 1) {
+    return pressClear4(view, view.action);
   }
   if (view.step >= 1) return idle(view);
 
-  const hint = findHint(values, notes);
+  const hint = findHint(values, notes, givensFlat);
   if (!hint) return stuck();
   return idle({
     step: 1,
@@ -276,27 +305,34 @@ export function pressHint(view: HintView, values: readonly number[], notes?: rea
   });
 }
 
-function beginnerEvidence(technique: string, values: readonly number[], target: number, digit: number, fallback: readonly number[]): number[] {
+function beginnerEvidence(
+  technique: string,
+  values: readonly number[],
+  target: number,
+  digit: number,
+  fallback: readonly number[],
+  order: readonly number[],
+): number[] {
   if (technique === "last_free_cell") {
-    const found = lastFreeEvidence(values, target);
+    const found = lastFreeEvidence(values, target, order);
     if (found.length > 0) return found;
   } else if (technique === "last_remaining_cell") {
-    const found = lastRemainingEvidence(values, target, digit);
+    const found = lastRemainingEvidence(values, target, digit, order);
     if (found.length > 0) return found;
   } else if (technique === "last_possible_number") {
-    const found = lastPossibleEvidence(values, target);
+    const found = lastPossibleEvidence(values, target, order);
     if (found.length > 0) return found;
   }
   return fallback.filter((index) => index !== target);
 }
 
-function pressFill3(view: HintView, values: readonly number[], digit: number): HintPress {
+function pressFill3(view: HintView, values: readonly number[], digit: number, order: readonly number[]): HintPress {
   const target = view.indexes[0];
   if (target === undefined || view.action?.kind !== "fill") return stuck();
   if (view.step >= 2) {
     return { view: emptyHintView(null), write: { index: target, digit }, clearNotes: null, fillCandidates: false };
   }
-  const evidence = beginnerEvidence(view.technique ?? "", values, target, digit, view.action.evidence);
+  const evidence = beginnerEvidence(view.technique ?? "", values, target, digit, view.action.evidence, order);
   const indexes = [target];
   if (view.technique === "last_remaining_cell" && view.action.unit) {
     for (const cell of unitCells(target, view.action.unit)) {
@@ -368,8 +404,27 @@ function pressHiddenSingle(view: HintView, action: Extract<HintAction, { kind: "
   });
 }
 
-function pressClear3(view: HintView, action: Extract<HintAction, { kind: "clear" }>): HintPress {
-  if (view.step >= 2) {
+function patternCells(technique: string | null, indexes: readonly number[]): number[] {
+  const group = technique ? GROUP_SIZE[technique] : undefined;
+  if (!group) return indexes.slice();
+  return indexes.slice(0, group);
+}
+
+function withExtra(pattern: readonly number[], extra: readonly number[]): number[] {
+  const indexes = pattern.slice();
+  for (const cell of extra) if (!indexes.includes(cell)) indexes.push(cell);
+  return indexes;
+}
+
+/** L2 paints the whole house. Pattern cells stay at the front so classes can find them. */
+function houseViewIndexes(pattern: readonly number[], unit: UnitKind): number[] {
+  const anchor = pattern[0];
+  if (anchor === undefined) return pattern.slice();
+  return withExtra(pattern, unitCells(anchor, unit));
+}
+
+function pressClear4(view: HintView, action: Extract<HintAction, { kind: "clear" }>): HintPress {
+  if (view.step >= 3) {
     return {
       view: emptyHintView(null),
       write: null,
@@ -377,12 +432,19 @@ function pressClear3(view: HintView, action: Extract<HintAction, { kind: "clear"
       fillCandidates: false,
     };
   }
-  const pattern = view.indexes.slice();
-  const indexes = pattern.slice();
-  for (const cell of action.indexes) if (!indexes.includes(cell)) indexes.push(cell);
+  const pattern = patternCells(view.technique, view.indexes);
+  if (view.step === 1) {
+    return idle({
+      step: 2,
+      indexes: houseViewIndexes(pattern, action.unit),
+      technique: view.technique,
+      action,
+      note: hintClearLockedText(view.technique ?? "", action.keep, action.unit),
+    });
+  }
   return idle({
-    step: 2,
-    indexes,
+    step: 3,
+    indexes: withExtra(pattern, action.indexes),
     technique: view.technique,
     action,
     note: hintClearReveal(view.technique ?? "", action.digits, action.keep),
@@ -396,11 +458,14 @@ const GROUP_SIZE: Record<string, number> = {
   hidden_triples: 3,
 };
 
+const HIDDEN_CLEAR = new Set(["hidden_pairs", "hidden_triples"]);
+
 /**
  * Classes for one cell in the current hint.
  * Hidden Singles beat 2 paints the whole house. Beginner and obvious-single
- * beat 2 mark evidence beside the target. Elimination beat 2 marks the cells
- * whose notes will be cleared.
+ * beat 2 mark evidence beside the target.
+ * #6/#7/#9/#10 L2 paints the house and the pattern. L3 keeps the pattern and
+ * marks the cells whose notes will be cleared. Filled cells never get evidence.
  */
 export function hintCellClasses(
   technique: string | null,
@@ -424,9 +489,17 @@ export function hintCellClasses(
     return classes;
   }
   const group = technique ? GROUP_SIZE[technique] : undefined;
-  if (group && step === 2) {
+  if (group && (step === 2 || step === 3)) {
     const position = indexes.indexOf(index);
-    return [position >= 0 && position < group ? "hint" : "hint-evidence"];
+    if (position < 0) return [];
+    const isPattern = position < group;
+    if (step === 2) return isPattern ? ["hint-house", "hint"] : ["hint-house"];
+    const hidden = technique !== null && HIDDEN_CLEAR.has(technique);
+    const isClear = hidden ? isPattern : !isPattern;
+    const classes: string[] = [];
+    if (isPattern) classes.push("hint-house", "hint");
+    if (isClear && value === 0) classes.push("hint-evidence");
+    return classes;
   }
   const reveal =
     step === 2 &&

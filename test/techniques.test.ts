@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { countSolutions, generate as ozGenerate } from "openzeloku";
+import { scanOrderFromPuzzle } from "../src/engine/scan-order.ts";
 import {
   TECHNIQUE_LABEL,
   TECHNIQUE_ORDER,
@@ -195,6 +196,32 @@ test("a unique puzzle beyond swordfish is rejected", () => {
   const analysis = analyze(TOO_HARD);
   assert.equal(analysis.solved, false);
   assert.equal(analysis.maxTechnique, null);
+});
+
+test("scan order is a per-puzzle permutation and only tie-breaks equal hits", () => {
+  const base = Array<number>(81).fill(0);
+  const first = scanOrderFromPuzzle(base);
+  const again = scanOrderFromPuzzle(base);
+  assert.deepEqual(again, first);
+  assert.equal(first.length, 81);
+  assert.deepEqual([...first].sort((a, b) => a - b), Array.from({ length: 81 }, (_, index) => index));
+  const changed = base.slice();
+  changed[40] = 4;
+  assert.notDeepEqual(scanOrderFromPuzzle(changed), first);
+
+  const two = SOLUTION.slice();
+  two[0] = 0;
+  two[80] = 0;
+  assert.equal(findLastFreeCell(two)?.index, 0);
+  const reversed = Array.from({ length: 81 }, (_, index) => 80 - index);
+  assert.equal(findLastFreeCell(two, reversed)?.index, 80);
+  const ordered = findLastFreeCell(two, scanOrderFromPuzzle(two));
+  assert.ok(ordered);
+  assert.equal(ordered.index, scanOrderFromPuzzle(two).find((cell) => cell === 0 || cell === 80));
+  const solved = analyze(two);
+  assert.equal(solved.solved, true);
+  assert.equal(solved.maxTechnique, "last_free_cell");
+  assert.deepEqual(solved.values, SOLUTION);
 });
 
 test("solved ratings never disagree with countSolutions", () => {

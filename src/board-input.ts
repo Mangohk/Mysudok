@@ -208,8 +208,8 @@ export function hiddenSingleHouse(
  * Filled cells of the unit that makes `target` a Last Free Cell.
  * Empty when `target` is not that cell.
  */
-export function lastFreeEvidence(values: readonly number[], target: number): number[] {
-  const hit = findLastFreeCell(values);
+export function lastFreeEvidence(values: readonly number[], target: number, order?: readonly number[]): number[] {
+  const hit = findLastFreeCell(values, order);
   if (!hit || hit.index !== target) return [];
   return hit.evidence;
 }
@@ -218,15 +218,20 @@ export function lastFreeEvidence(values: readonly number[], target: number): num
  * Cells that already show `digit` and explain a Last Remaining Cell.
  * Empty when this target/digit is not the current hit.
  */
-export function lastRemainingEvidence(values: readonly number[], target: number, digit: number): number[] {
-  const hit = findLastRemainingCell(values);
+export function lastRemainingEvidence(
+  values: readonly number[],
+  target: number,
+  digit: number,
+  order?: readonly number[],
+): number[] {
+  const hit = findLastRemainingCell(values, order);
   if (!hit || hit.index !== target || hit.digit !== digit) return [];
   return hit.evidence;
 }
 
 /** Filled cells in the target's row, column, and box for Last Possible Number. */
-export function lastPossibleEvidence(values: readonly number[], target: number): number[] {
-  const hit = findLastPossibleNumber(values);
+export function lastPossibleEvidence(values: readonly number[], target: number, order?: readonly number[]): number[] {
+  const hit = findLastPossibleNumber(values, order);
   if (!hit || hit.index !== target) return [];
   return hit.evidence;
 }
