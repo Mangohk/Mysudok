@@ -221,6 +221,7 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .top {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-end;
   gap: 0.75rem;
@@ -261,6 +262,23 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .top-actions, .done-actions, .confirm {
   display: flex;
+  gap: 0.4rem;
+}
+
+/* Confirm anchors under the top buttons in portrait and landscape. */
+.top-actions {
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  margin-left: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.top-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.4rem;
 }
 
@@ -427,7 +445,14 @@ button { cursor: pointer; touch-action: manipulation; }
   background: #fff4e4;
 }
 
-.confirm p { flex: 1 1 12rem; margin: 0; }
+.top-actions > .confirm {
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  margin-top: 0;
+}
+
+.confirm p { flex: 1 1 12rem; min-width: 0; margin: 0; }
 
 .tools {
   display: flex;
@@ -630,7 +655,9 @@ button:disabled { opacity: 0.4; cursor: default; }
     grid-row: 1;
     align-self: end;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
   }
 
   .top-actions button {
@@ -681,8 +708,8 @@ button:disabled { opacity: 0.4; cursor: default; }
   .notes { font-size: clamp(0.42rem, 2.7cqw, 0.68rem); }
 
   /* Direct children only. `.done` is also the class on a finished pad key;
-     a descendant `order` would place 1 and 2 after the unfinished digits. */
-  .play-rail > .confirm { order: 0; }
+     a descendant `order` would place 1 and 2 after the unfinished digits.
+     Confirm is not a rail child; it stays under `.top-actions`. */
   .play-rail > .done { order: 1; }
   .play-rail > .status { order: 2; margin-top: 0; overflow-wrap: anywhere; }
   .play-rail > .pad { order: 3; }
@@ -690,8 +717,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 
   .play-rail > .status,
   .play-rail > .tools,
-  .play-rail > .done,
-  .play-rail > .confirm {
+  .play-rail > .done {
     flex-shrink: 0;
     margin-top: 0;
   }
@@ -733,7 +759,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   .play-rail .tools > button,
   .play-rail .menu > button,
   .play-rail .done button,
-  .play-rail .confirm button {
+  .top-actions .confirm button {
     min-width: 44pt;
     min-height: 44pt;
   }

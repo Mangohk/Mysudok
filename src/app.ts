@@ -606,11 +606,12 @@ function esc(text: string): string {
   });
 }
 
-function confirmCopy(kind: Play["confirm"]): string {
+export function confirmCopy(kind: Play["confirm"]): string {
   if (kind === "back") return "返回並放棄這一題？";
-  if (kind === "restart") return "清除填寫，重開這一題？";
+  if (kind === "restart") return "重開並放棄而家進度？";
+  if (kind === "new") return "開新局並放棄這一題？";
   if (kind === "check") return "會對答案標出唔啱嘅格（求救），唔會改你嘅盤。確定？";
-  return "放棄這一題，再出一題？";
+  return "";
 }
 
 function boardHtml(play: Play): string {
@@ -723,9 +724,12 @@ function playHtml(play: Play): string {
         <p class="left">仲剩 ${emptyCellCount(play)} 格</p>
       </div>
       <div class="top-actions">
-        <button type="button" data-action="new">新局</button>
-        <button type="button" data-action="restart">重開</button>
-        <button type="button" data-action="back">返回</button>
+        <div class="top-action-row">
+          <button type="button" data-action="restart">重開</button>
+          <button type="button" data-action="new">新局</button>
+          <button type="button" data-action="back">返回</button>
+        </div>
+        ${confirm}
       </div>
     </header>
     <div class="play-main">
@@ -734,7 +738,6 @@ function playHtml(play: Play): string {
     <div class="play-rail">
       ${status}
       ${done}
-      ${confirm}
       <div class="tools">
         <button type="button" data-action="notes" aria-pressed="${play.pencilMode}" ${locked}>筆記</button>
         <button type="button" data-action="undo" ${locked} ${play.undo.length === 0 ? "disabled" : ""}>上一步</button>
