@@ -501,19 +501,45 @@ function boardHtml(play: Play): string {
   return html;
 }
 
-function padHtml(play: Play): string {
-  let digits = "";
+export interface PadKey {
+  digit: number;
+  remain: number;
+  done: boolean;
+  armed: boolean;
+  disabled: boolean;
+}
+
+/** Digit pad keys in visual order. Always 1–9; a finished digit only changes style. */
+export function padKeys(board: BoardInput, complete: boolean): PadKey[] {
+  const keys: PadKey[] = [];
   for (let digit = 1; digit <= 9; digit++) {
-    const done = isDigitDone(play, digit);
-    const armed = !done && play.selectedDigit === digit;
-    const remain = remainingCount(play.values, digit);
-    const classes = ["pad-key"];
-    if (done) classes.push("done");
-    if (armed) classes.push("armed");
-    const disabled = play.complete || done ? "disabled" : "";
-    digits += `<button type="button" class="${classes.join(" ")}" data-action="digit" data-digit="${digit}" data-remaining="${remain}" data-done="${done}" aria-pressed="${armed}" aria-label="數字 ${digit}，剩餘 ${remain}" ${disabled}><span class="pad-digit">${digit}</span><span class="pad-remain">${remain}</span></button>`;
+    const done = isDigitDone(board, digit);
+    keys.push({
+      digit,
+      remain: remainingCount(board.values, digit),
+      done,
+      armed: !done && board.selectedDigit === digit,
+      disabled: complete || done,
+    });
   }
+  return keys;
+}
+
+export function padMarkup(board: BoardInput, complete: boolean): string {
+  const digits = padKeys(board, complete)
+    .map((key) => {
+      const classes = ["pad-key"];
+      if (key.done) classes.push("done");
+      if (key.armed) classes.push("armed");
+      const disabled = key.disabled ? "disabled" : "";
+      return `<button type="button" class="${classes.join(" ")}" data-action="digit" data-digit="${key.digit}" data-remaining="${key.remain}" data-done="${key.done}" aria-pressed="${key.armed}" aria-label="數字 ${key.digit}，剩餘 ${key.remain}" ${disabled}><span class="pad-digit">${key.digit}</span><span class="pad-remain">${key.remain}</span></button>`;
+    })
+    .join("");
   return `<div class="pad">${digits}</div>`;
+}
+
+function padHtml(play: Play): string {
+  return padMarkup(play, play.complete);
 }
 
 function playHtml(play: Play): string {
