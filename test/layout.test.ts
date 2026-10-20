@@ -86,12 +86,12 @@ test("landscape right rail A keeps confirm, done, status, pad, tools, undo", () 
   });
   assert.ok(landscape);
   const orders: Array<[string, string]> = [
-    [String.raw`\.play-rail \.confirm`, "0"],
-    [String.raw`\.play-rail \.done`, "1"],
-    [String.raw`\.play-rail \.status`, "2"],
-    [String.raw`\.play-rail \.pad`, "3"],
-    [String.raw`\.play-rail \.tools`, "4"],
-    [String.raw`\.play-rail \.undo-bar`, "5"],
+    [String.raw`\.play-rail > \.confirm`, "0"],
+    [String.raw`\.play-rail > \.done`, "1"],
+    [String.raw`\.play-rail > \.status`, "2"],
+    [String.raw`\.play-rail > \.pad`, "3"],
+    [String.raw`\.play-rail > \.tools`, "4"],
+    [String.raw`\.play-rail > \.undo-bar`, "5"],
   ];
   for (const [selector, order] of orders) {
     assert.match(ruleBody(selector, landscape), new RegExp(String.raw`order:\s*${order}\b`));
@@ -107,7 +107,7 @@ test("status wraps anywhere in portrait and in the landscape rail", () => {
     return /orientation:\s*landscape/.test(header) && /min-width:\s*900px/.test(header) && !/max-height/.test(header);
   });
   assert.ok(landscape);
-  assert.match(ruleBody(String.raw`\.play-rail \.status`, landscape), /overflow-wrap:\s*anywhere/);
+  assert.match(ruleBody(String.raw`\.play-rail > \.status`, landscape), /overflow-wrap:\s*anywhere/);
   assert.equal(css.includes("\u00ad"), false);
   assert.doesNotMatch(css, /&shy;|soft\s*hyphen/i);
 });
@@ -125,4 +125,56 @@ test("landscape board side is min(available width, available height)", () => {
   assert.doesNotMatch(board, /width:\s*100%/);
   assert.doesNotMatch(board, /max-height\s*:/);
   assert.match(ruleBody("\\.play-main", landscape), /container-type:\s*size/);
+});
+
+function landscapeRail(): string {
+  const landscape = css.split("@media").find((block) => {
+    const header = block.slice(0, block.indexOf("{"));
+    return /orientation:\s*landscape/.test(header) && /min-width:\s*900px/.test(header) && !/max-height/.test(header);
+  });
+  assert.ok(landscape);
+  return landscape;
+}
+
+test("digit pad slots stay 1 through 9 in portrait and landscape", () => {
+  const portrait = css.split("@media")[0] ?? "";
+  const pad = ruleBody("\\.pad", portrait);
+  assert.match(pad, /grid-template-columns:\s*repeat\(\s*9\s*,\s*1fr\s*\)/);
+  assert.doesNotMatch(pad, /grid-template-rows\s*:/);
+  const padButton = ruleBody("\\.pad button", portrait);
+  assert.doesNotMatch(padButton, /\border\s*:/);
+  assert.match(padButton, /margin:\s*0\b/);
+
+  for (let digit = 1; digit <= 9; digit++) {
+    const cell = ruleBody(String.raw`\.pad button\[data-digit="${digit}"\]`, portrait);
+    assert.match(cell, new RegExp(String.raw`order:\s*${digit}\b`));
+    assert.match(cell, /grid-row:\s*1\b/);
+    assert.match(cell, new RegExp(String.raw`grid-column:\s*${digit}\b`));
+  }
+
+  const landscape = landscapeRail();
+  const railPad = ruleBody(String.raw`\.play-rail \.pad`, landscape);
+  assert.match(railPad, /grid-template-columns:\s*repeat\(\s*3\s*,\s*minmax\(\s*44pt\s*,\s*1fr\s*\)\s*\)/);
+  assert.match(railPad, /grid-template-rows:\s*repeat\(\s*3\s*,\s*minmax\(\s*44pt\s*,\s*1fr\s*\)\s*\)/);
+  assert.doesNotMatch(ruleBody(String.raw`\.play-rail \.pad button`, landscape), /\border\s*:/);
+  for (let digit = 1; digit <= 9; digit++) {
+    const row = Math.floor((digit - 1) / 3) + 1;
+    const col = ((digit - 1) % 3) + 1;
+    const cell = ruleBody(String.raw`\.play-rail \.pad button\[data-digit="${digit}"\]`, landscape);
+    assert.match(cell, new RegExp(String.raw`grid-row:\s*${row}\b`));
+    assert.match(cell, new RegExp(String.raw`grid-column:\s*${col}\b`));
+  }
+
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const orderRules = [...stripped.matchAll(/([^{]+)\{([^}]*\border\s*:[^}]*)\}/g)];
+  assert.ok(orderRules.length >= 6);
+  for (const match of orderRules) {
+    const selector = match[1] ?? "";
+    const body = match[2] ?? "";
+    assert.doesNotMatch(selector, /data-done|data-remaining/);
+    if (!/\.done\b/.test(selector)) continue;
+    assert.match(selector, />\s*\.done\b/);
+    assert.doesNotMatch(selector, /\.pad\b/);
+    assert.match(body, /order:\s*1\b/);
+  }
 });
