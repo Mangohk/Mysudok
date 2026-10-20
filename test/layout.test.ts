@@ -79,7 +79,7 @@ test("pencil notes cannot raise a row above an empty row", () => {
   assert.doesNotMatch(notesFont, /inset\s*:/);
 });
 
-test("landscape right rail A keeps confirm, done, status, pad, tools, undo", () => {
+test("landscape right rail A keeps confirm, done, status, pad, tools", () => {
   const landscape = css.split("@media").find((block) => {
     const header = block.slice(0, block.indexOf("{"));
     return /orientation:\s*landscape/.test(header) && /min-width:\s*900px/.test(header) && !/max-height/.test(header);
@@ -91,11 +91,12 @@ test("landscape right rail A keeps confirm, done, status, pad, tools, undo", () 
     [String.raw`\.play-rail > \.status`, "2"],
     [String.raw`\.play-rail > \.pad`, "3"],
     [String.raw`\.play-rail > \.tools`, "4"],
-    [String.raw`\.play-rail > \.undo-bar`, "5"],
   ];
   for (const [selector, order] of orders) {
     assert.match(ruleBody(selector, landscape), new RegExp(String.raw`order:\s*${order}\b`));
   }
+  assert.equal(landscape.includes("undo-bar"), false);
+  assert.equal(css.includes("undo-bar"), false);
 });
 
 test("status wraps anywhere in portrait and in the landscape rail", () => {
@@ -177,4 +178,37 @@ test("digit pad slots stay 1 through 9 in portrait and landscape", () => {
     assert.doesNotMatch(selector, /\.pad\b/);
     assert.match(body, /order:\s*1\b/);
   }
+});
+
+test("tools main row is 筆記, 上一步, 提示, ⋯ and the menu is one flat layer", () => {
+  const app = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  assert.doesNotMatch(app, /撤銷|復原|還原|回退/);
+  assert.doesNotMatch(readme, /撤銷|復原|還原|回退/);
+  assert.match(app, /Z 上一步/);
+  assert.match(app, /已填合法候選 · 可上一步/);
+  assert.match(app, /已清候選 · 可上一步/);
+  assert.doesNotMatch(app, /可撤銷/);
+
+  const toolsStart = app.indexOf('<div class="tools">');
+  const toolsEnd = app.indexOf("${padHtml(play)}");
+  assert.ok(toolsStart >= 0 && toolsEnd > toolsStart);
+  const tools = app.slice(toolsStart, toolsEnd);
+  assert.match(tools, /data-action="notes"[\s\S]*?>筆記</);
+  const undoButton = tools.match(/<button type="button" data-action="undo"[^>]*>上一步<\/button>/);
+  assert.ok(undoButton);
+  assert.doesNotMatch(undoButton[0] ?? "", /aria-/);
+  assert.match(tools, /data-action="hint"/);
+  assert.match(tools, /data-action="menu"/);
+  assert.doesNotMatch(tools, /fill-candidates|undo-bar|填滿候選/);
+  const notesAt = tools.indexOf('data-action="notes"');
+  const undoAt = tools.indexOf('data-action="undo"');
+  const hintAt = tools.indexOf('data-action="hint"');
+  const menuAt = tools.indexOf('data-action="menu"');
+  assert.ok(notesAt < undoAt && undoAt < hintAt && hintAt < menuAt);
+
+  assert.match(
+    app,
+    /class="menu-pop" role="menu"><button type="button" data-action="fill-candidates"[^>]*>填滿候選<\/button><button type="button" data-action="check-wrong">檢查錯格<\/button>/,
+  );
 });
