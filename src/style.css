@@ -95,8 +95,9 @@ button { cursor: pointer; touch-action: manipulation; }
 .choice.intro { background: #e5f2e8; color: #143c28; }
 .choice.mid { background: #f8efd4; color: #5c4310; }
 .choice.advanced { background: #fde7e0; color: #6e2618; }
+.choice.practice { background: #e7eef8; color: #1c3a5f; }
 .choice:hover { transform: translateY(-1px); }
-.choice:focus-visible, .tools button:focus-visible, .pad button:focus-visible, .top-actions button:focus-visible, .done button:focus-visible, .confirm button:focus-visible, .error button:focus-visible {
+.choice:focus-visible, .technique:focus-visible, .tools button:focus-visible, .pad button:focus-visible, .top-actions button:focus-visible, .done button:focus-visible, .confirm button:focus-visible, .error button:focus-visible, .practice-actions button:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
@@ -106,6 +107,63 @@ button { cursor: pointer; touch-action: manipulation; }
   font-size: 1.85rem;
   font-weight: 700;
   line-height: 1.1;
+}
+
+.practice-list {
+  list-style: none;
+  margin: 1.15rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.technique {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.8rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.72rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid #e3d6c4;
+  background: #fffdf8;
+}
+
+.tech-title { font-weight: 720; }
+
+.tech-progress, .pool-progress {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 680;
+}
+
+.pool-progress { margin-left: 0.45rem; letter-spacing: 0.02em; }
+
+.technique.empty,
+.technique:disabled {
+  background: #f3eee6;
+  color: var(--muted);
+  opacity: 1;
+}
+
+.notice {
+  margin: 1rem 0 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  background: #fff4e4;
+}
+
+.practice-actions { margin-top: 1.15rem; }
+
+.practice-actions button {
+  min-height: 2.6rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #e3d6c4;
+  background: #fffdf8;
 }
 
 .credit { margin-top: 1.75rem; color: var(--muted); font-size: 0.85rem; }
