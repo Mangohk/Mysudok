@@ -70,9 +70,23 @@ export const HOME_BLURB: Record<Difficulty, string> = {
   專家: "Y-Wing、Swordfish",
 };
 
-/** In-play difficulty name. Shown for 專家 the same way as the other three. */
+/** Difficulty eyebrow. Shown on the completion header, including 專家. */
 export function playEyebrowMarkup(difficulty: Difficulty): string {
   return `<p class="eyebrow" data-difficulty="${esc(difficulty)}">${esc(difficulty)}</p>`;
+}
+
+/**
+ * Top-left status. Blank while the puzzle is unfinished.
+ * The completion screen keeps the difficulty, ceiling, technique, and cells left.
+ */
+export function playTopCopyMarkup(
+  complete: boolean,
+  difficulty: Difficulty,
+  technique: string,
+  remaining: number,
+): string {
+  if (!complete) return "";
+  return `<div class="top-copy">${playEyebrowMarkup(difficulty)}<p class="ceiling-kicker">${esc(CEILING_LABEL)}</p><h1>${esc(technique)}</h1><p class="left">仲剩 ${remaining} 格</p></div>`;
 }
 
 /** Status under the board. The coach line is only for an unfinished, idle game. */
@@ -621,12 +635,7 @@ function playHtml(play: Play): string {
     : "";
   return `<section class="play" data-difficulty="${esc(play.difficulty)}">
     <header class="top">
-      <div class="top-copy">
-        ${playEyebrowMarkup(play.difficulty)}
-        <p class="ceiling-kicker">${esc(CEILING_LABEL)}</p>
-        <h1>${esc(label)}</h1>
-        <p class="left">仲剩 ${emptyCellCount(play)} 格</p>
-      </div>
+      ${playTopCopyMarkup(play.complete, play.difficulty, label, emptyCellCount(play))}
       <div class="top-actions">
         <div class="top-action-row">
           <button type="button" data-action="restart">重開</button>

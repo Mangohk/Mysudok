@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { homeHtml, playEyebrowMarkup } from "../src/app.ts";
+import { homeHtml, playTopCopyMarkup } from "../src/app.ts";
 
 const appSource = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
@@ -31,14 +31,15 @@ test("home stacks four full-width difficulties and has no practice entry", () =>
   assert.match(choice?.[1] ?? "", /width:\s*100%/);
 });
 
-test("in-play chrome names 專家 and does not show a practice label", () => {
-  const html = playEyebrowMarkup("專家");
+test("completion header names 專家 and in-play copy stays blank", () => {
+  assert.equal(playTopCopyMarkup(false, "專家", "Y-Wing", 20), "");
+  const html = playTopCopyMarkup(true, "專家", "Y-Wing", 0);
   assert.match(html, /class="eyebrow"/);
   assert.match(html, /data-difficulty="專家"/);
   assert.match(html, />專家</);
   assert.equal(html.includes("練習"), false);
-  assert.match(playEyebrowMarkup("高級"), />高級</);
-  assert.equal(playEyebrowMarkup("高級").includes("專家"), false);
+  assert.match(playTopCopyMarkup(true, "高級", "X-Wing", 0), />高級</);
+  assert.equal(playTopCopyMarkup(true, "高級", "X-Wing", 0).includes("專家"), false);
 });
 
 test("difficulty deals morph live puzzles and expert deals morph the bank", () => {
