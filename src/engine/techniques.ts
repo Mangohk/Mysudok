@@ -20,8 +20,8 @@ import { scanOrderFromPuzzle, scanRanks } from "./scan-order";
  * |   11 | pointing_pairs        | Pointing Pairs        | 高級 |
  * |   12 | pointing_triples      | Pointing Triples      | 高級 |
  * |   13 | x_wing                | X-Wing                | 高級 |
- * |   14 | y_wing                | Y-Wing                | 高級 |
- * |   15 | swordfish             | Swordfish             | 高級 |
+ * |   14 | y_wing                | Y-Wing                | 專家 |
+ * |   15 | swordfish             | Swordfish             | 專家 |
  *
  * #1–#3 read placed digits only (no pencil marks). #5–#10 read the candidate
  * mask, which starts as those placements and shrinks when a later technique
@@ -30,8 +30,9 @@ import { scanOrderFromPuzzle, scanRanks } from "./scan-order";
  *
  * Legacy ids map forward: naked_single → obvious_singles, hidden_single →
  * hidden_singles, naked_pair → obvious_pairs, hidden_pair → hidden_pairs.
- * Pointing and box-line reduction are advanced-band thresholds. Box-line
- * (claiming) is applied and recorded as Pointing Pairs or Pointing Triples.
+ * Pointing and box-line reduction are the advanced band (#11–#13). Y-Wing and
+ * Swordfish are the expert band (#14–#15). Box-line (claiming) is applied and
+ * recorded as Pointing Pairs or Pointing Triples.
  * `findPointing` / `findClaiming` / `findFish` / `findYWing` are the detectors
  * `analyze` applies and `findHint` teaches. Hints do not keep a second copy.
  *
@@ -93,7 +94,7 @@ const RANK: Record<AppliedTechnique, number> = {
   swordfish: 15,
 };
 
-export type TechniqueBand = "初級" | "中級" | "高級";
+export type TechniqueBand = "初級" | "中級" | "高級" | "專家";
 
 export function techniqueRank(id: AppliedTechnique): number {
   return RANK[id];
@@ -103,7 +104,8 @@ export function techniqueBand(id: AppliedTechnique): TechniqueBand {
   const rank = RANK[id];
   if (rank <= 3) return "初級";
   if (rank <= 10) return "中級";
-  return "高級";
+  if (rank <= 13) return "高級";
+  return "專家";
 }
 
 export function isBeginnerTechnique(id: AppliedTechnique): boolean {
@@ -114,8 +116,15 @@ export function isIntermediateTechnique(id: AppliedTechnique): boolean {
   return RANK[id] >= 5 && RANK[id] <= 10;
 }
 
+/** #11–#13. Y-Wing and Swordfish are {@link isExpertTechnique}, not advanced. */
 export function isAdvancedTechnique(id: AppliedTechnique): boolean {
-  return RANK[id] >= 11;
+  const rank = RANK[id];
+  return rank >= 11 && rank <= 13;
+}
+
+/** #14–#15: Y-Wing and Swordfish. */
+export function isExpertTechnique(id: AppliedTechnique): boolean {
+  return RANK[id] >= 14;
 }
 
 const N = 9;

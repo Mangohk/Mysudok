@@ -11,7 +11,9 @@ export {
   practiceChoices,
 } from "./bank";
 export type { BankEntry, PracticeChoice } from "./bank";
-export { generate, GenerationFailedError, MAX_ATTEMPTS } from "./generate";
+export { dealExpert, expertPool, EXPERT_EMPTY_MESSAGE, EXPERT_FALLBACK_ATTEMPTS, EXPERT_HARDEST } from "./expert-deal";
+export type { ExpertDeal } from "./expert-deal";
+export { acceptsDifficulty, generate, GenerationFailedError, MAX_ATTEMPTS } from "./generate";
 export type { Difficulty, Puzzle } from "./generate";
 export { nextSingleCell } from "./hint";
 export { applyDealMorph, applyMorphGrid, isDealMorph, morphGrids, randomMorph } from "./morph";
@@ -22,6 +24,7 @@ export {
   analyze,
   isAdvancedTechnique,
   isBeginnerTechnique,
+  isExpertTechnique,
   isIntermediateTechnique,
   techniqueBand,
   techniqueRank,
