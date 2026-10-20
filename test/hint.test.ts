@@ -9,10 +9,12 @@ import {
   hintBeginnerReveal,
   hintButtonLabel,
   hintCellClasses,
+  hintClearLockedText,
   hintClearReveal,
   hintHiddenSingleText,
   hintLastPossibleText,
   hintLastRemainingText,
+  hintLevel1Text,
   hintLevel2FillText,
   hintNakedMissingText,
   notesReady,
@@ -20,12 +22,15 @@ import {
   techniqueTitle,
   type HintView,
 } from "../src/engine/hint.ts";
+import { scanOrderFromPuzzle } from "../src/engine/scan-order.ts";
 import {
   findHiddenSet,
   findLastFreeCell,
   findLastPossibleNumber,
   findLastRemainingCell,
   findObviousSet,
+  findObviousSingle,
+  unitCells,
 } from "../src/engine/techniques.ts";
 
 const SOLUTION = [
@@ -140,21 +145,24 @@ test("#1 Last Free Cell writes on the third press", () => {
 });
 
 test("#2 Last Remaining Cell names the house and paints that house plus the digit", () => {
-  const hit = findLastRemainingCell(REMAINING);
+  const order = scanOrderFromPuzzle(REMAINING);
+  const hit = findLastRemainingCell(REMAINING, order);
   assert.ok(hit);
-  assert.equal(hit.unit, "row");
+  assert.ok(hit.unit);
+  const houseWord = hit.unit === "row" ? "行" : hit.unit === "col" ? "列" : "宮";
   const first = pressHint(emptyHintView(), REMAINING);
   assert.equal(first.write, null);
   assert.equal(first.view.technique, "last_remaining_cell");
-  assert.equal(first.view.note?.includes("呢行"), true);
+  assert.equal(first.view.indexes[0], hit.index);
+  assert.equal(first.view.note?.includes(`呢${houseWord}`), true);
   assert.equal(first.view.note?.includes("呢個單位"), false);
   assert.equal(first.view.note?.includes(`〔${hit.digit}〕`), false);
   const second = pressHint(first.view, REMAINING);
   assert.equal(second.write, null);
-  assert.equal(second.view.note, hintLastRemainingText(hit.digit, "row"));
-  assert.equal(second.view.note, `〔${hit.digit}〕喺呢行只剩這一格。`);
+  assert.equal(second.view.note, hintLastRemainingText(hit.digit, hit.unit));
+  assert.equal(second.view.note, `〔${hit.digit}〕喺呢${houseWord}只剩這一格。`);
   assert.equal(second.view.indexes[0], hit.index);
-  const house = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  const house = [...unitCells(hit.index, hit.unit)];
   for (const cell of house) assert.equal(second.view.indexes.includes(cell), true);
   assert.deepEqual(second.view.indexes.slice(0, 9), [hit.index, ...house.filter((cell) => cell !== hit.index)]);
   assert.deepEqual(hintCellClasses("last_remaining_cell", 2, second.view.indexes, hit.index, 0), ["hint-house", "hint"]);
@@ -173,7 +181,7 @@ test("#2 Last Remaining Cell names the house and paints that house plus the digi
 });
 
 test("#3 Last Possible Number names the three houses and marks used digits", () => {
-  const hit = findLastPossibleNumber(POSSIBLE);
+  const hit = findLastPossibleNumber(POSSIBLE, scanOrderFromPuzzle(POSSIBLE));
   assert.ok(hit);
   const first = pressHint(emptyHintView(), POSSIBLE);
   assert.equal(first.view.technique, "last_possible_number");
@@ -281,54 +289,114 @@ test("#8 Hidden Singles keeps the four-press house mark", () => {
   assert.equal(fill.view.technique, null);
 });
 
-test("#6/#9 clear candidates on the third press and never write a digit", () => {
+test("#6/#7/#9/#10 copy follows the four-press templates and never says 填入", () => {
+  const clear = (technique: string, indexes: number[], unit: "row" | "col" | "box", digits: number[], keep: number[]) =>
+    hintLevel1Text({
+      indexes,
+      technique,
+      action: { kind: "clear", digits, indexes: [], keep, unit },
+    });
+  assert.equal(clear("obvious_pairs", [0, 1], "row", [1, 2], [1, 2]), "呢幾格可用〔Obvious Pairs〕：〔兩格一齊只剩兩個候選〕。");
+  assert.equal(clear("obvious_triples", [0, 1, 2], "col", [2, 5, 7], [2, 5, 7]), "呢幾格可用〔Obvious Triples〕：〔三格合共只剩三個候選〕。");
+  assert.equal(clear("hidden_pairs", [0, 1], "box", [3, 4], [1, 2]), "呢幾格可用〔Hidden Pairs〕：〔兩個數字喺呢一區只可以放喺兩格〕。");
+  assert.equal(clear("hidden_triples", [0, 1, 2], "row", [6], [1, 2, 3]), "呢幾格可用〔Hidden Triples〕：〔三個數字喺呢一區只可以放喺三格〕。");
+  assert.equal(hintClearLockedText("obvious_pairs", [1, 2], "row"), "〔1〕同〔2〕一定分別落喺呢兩格（標呢〔行〕）。");
+  assert.equal(hintClearLockedText("obvious_triples", [2, 5, 7], "col"), "〔2〕、〔5〕、〔7〕一定落喺呢三格（標呢〔列〕）。");
+  assert.equal(hintClearLockedText("hidden_pairs", [4, 8], "box"), "〔4〕同〔8〕喺呢〔宮〕只得呢兩格。");
+  assert.equal(hintClearLockedText("hidden_triples", [1, 2, 3], "row"), "〔1〕、〔2〕、〔3〕喺呢〔行〕只得呢三格。");
+  assert.equal(hintClearReveal("obvious_pairs", [1, 2], [1, 2]), "同單位其他格刪走 〔1〕、〔2〕。");
+  assert.equal(hintClearReveal("obvious_triples", [2, 5, 7], [2, 5, 7]), "同單位其他格刪走 〔2〕、〔5〕、〔7〕。");
+  assert.equal(hintClearReveal("hidden_pairs", [9], [4, 8]), "呢兩格刪走其他候選只留 〔4〕、〔8〕。");
+  assert.equal(hintClearReveal("hidden_triples", [9], [1, 2, 3]), "呢三格刪走其他候選只留 〔1〕、〔2〕、〔3〕。");
+  for (const id of ["obvious_pairs", "obvious_triples", "hidden_pairs", "hidden_triples"]) {
+    for (let step = 0; step <= 4; step++) assert.notEqual(hintButtonLabel(step, id), "填入");
+    assert.equal(hintButtonLabel(1, id), "提示");
+    assert.equal(hintButtonLabel(2, id), "再提示");
+    assert.equal(hintButtonLabel(3, id), "清候選");
+  }
+});
+
+test("#6/#9 clear candidates on the fourth press and never write a digit", () => {
   const grid = Array<number>(81).fill(0);
+  grid[8] = 9;
   const pairNotes = Array<number>(81).fill(0x3fe);
   pairNotes[0] = (1 << 1) | (1 << 2);
   pairNotes[1] = (1 << 1) | (1 << 2);
-  const pair = findObviousSet(grid, pairNotes, 2);
+  const pair = findObviousSet(grid, pairNotes, 2, scanOrderFromPuzzle(grid));
   assert.ok(pair);
+  assert.equal(pair.unit, "row");
   assert.deepEqual(pair.digits, [1, 2]);
   const first = pressHint(emptyHintView(), grid, pairNotes);
   assert.equal(first.view.technique, "obvious_pairs");
   assert.deepEqual(first.view.indexes, pair.cells);
-  assert.equal(first.view.note?.includes("Obvious Pairs"), true);
-  assert.equal(first.view.note?.includes("再撳提示睇下一步。"), true);
-  assert.equal(first.view.note?.includes("改筆記"), false);
+  assert.equal(first.view.note, "呢幾格可用〔Obvious Pairs〕：〔兩格一齊只剩兩個候選〕。");
   assert.equal(first.view.note?.includes("〔1"), false);
-  assert.equal(hintButtonLabel(1, "obvious_pairs"), "再提示");
+  assert.equal(hintButtonLabel(1, "obvious_pairs"), "提示");
+  assert.deepEqual(hintCellClasses("obvious_pairs", 1, first.view.indexes, 0, 0), ["hint"]);
+  assert.deepEqual(hintCellClasses("obvious_pairs", 1, first.view.indexes, 8, 9), []);
+
   const second = pressHint(first.view, grid, pairNotes);
   assert.equal(second.write, null);
+  assert.equal(second.clearNotes, null);
   assert.equal(second.view.step, 2);
-  assert.equal(second.view.note, hintClearReveal("obvious_pairs", [1, 2], [1, 2]));
-  assert.equal(second.view.note, "同單位其他格刪走 〔1、2〕。");
-  assert.equal(hintButtonLabel(2, "obvious_pairs"), "清候選");
+  assert.equal(second.view.note, "〔1〕同〔2〕一定分別落喺呢兩格（標呢〔行〕）。");
+  assert.equal(hintButtonLabel(2, "obvious_pairs"), "再提示");
   assert.notEqual(hintButtonLabel(2, "obvious_pairs"), "填入");
-  assert.equal(second.view.indexes.includes(2), true);
-  const clear = pressHint(second.view, grid, pairNotes);
+  for (const cell of unitCells(0, "row")) assert.equal(second.view.indexes.includes(cell), true);
+  assert.deepEqual(hintCellClasses("obvious_pairs", 2, second.view.indexes, 0, 0), ["hint-house", "hint"]);
+  assert.deepEqual(hintCellClasses("obvious_pairs", 2, second.view.indexes, 2, 0), ["hint-house"]);
+  assert.deepEqual(hintCellClasses("obvious_pairs", 2, second.view.indexes, 8, grid[8]), ["hint-house"]);
+  assert.equal(hintCellClasses("obvious_pairs", 2, second.view.indexes, 8, grid[8]).includes("hint-evidence"), false);
+
+  const third = pressHint(second.view, grid, pairNotes);
+  assert.equal(third.write, null);
+  assert.equal(third.clearNotes, null);
+  assert.equal(third.view.step, 3);
+  assert.equal(third.view.note, hintClearReveal("obvious_pairs", [1, 2], [1, 2]));
+  assert.equal(third.view.note, "同單位其他格刪走 〔1〕、〔2〕。");
+  assert.equal(hintButtonLabel(3, "obvious_pairs"), "清候選");
+  assert.deepEqual(hintCellClasses("obvious_pairs", 3, third.view.indexes, 0, 0), ["hint-house", "hint"]);
+  assert.deepEqual(hintCellClasses("obvious_pairs", 3, third.view.indexes, 2, 0), ["hint-evidence"]);
+  assert.equal(third.view.indexes.includes(8), false);
+  assert.deepEqual(hintCellClasses("obvious_pairs", 3, third.view.indexes, 8, grid[8]), []);
+
+  const clear = pressHint(third.view, grid, pairNotes);
   assert.equal(clear.write, null);
   assert.equal(clear.fillCandidates, false);
   assert.deepEqual(clear.clearNotes?.digits, [1, 2]);
   assert.equal(clear.clearNotes?.indexes.includes(0), false);
   assert.equal(clear.clearNotes?.indexes.includes(2), true);
+  assert.equal(clear.clearNotes?.indexes.includes(8), false);
   assert.equal(clear.view.step, 0);
 
   const hiddenNotes = Array<number>(81).fill(0x3fe);
   for (let index = 2; index < 9; index++) hiddenNotes[index] &= ~((1 << 1) | (1 << 2));
   hiddenNotes[0] = (1 << 1) | (1 << 2) | (1 << 3);
   hiddenNotes[1] = (1 << 1) | (1 << 2) | (1 << 4);
-  const hidden = findHiddenSet(grid, hiddenNotes, 2);
+  const hidden = findHiddenSet(grid, hiddenNotes, 2, scanOrderFromPuzzle(grid));
   assert.ok(hidden);
   const hiddenFirst = pressHint(emptyHintView(), grid, hiddenNotes);
   assert.equal(hiddenFirst.view.technique, "hidden_pairs");
+  assert.equal(hiddenFirst.view.note, "呢幾格可用〔Hidden Pairs〕：〔兩個數字喺呢一區只可以放喺兩格〕。");
   const hiddenSecond = pressHint(hiddenFirst.view, grid, hiddenNotes);
-  assert.equal(hiddenSecond.view.note, "呢兩格刪走其他候選，只留 〔1、2〕。");
-  assert.equal(hintButtonLabel(2, "hidden_pairs"), "清候選");
-  const hiddenClear = pressHint(hiddenSecond.view, grid, hiddenNotes);
+  assert.equal(hiddenSecond.clearNotes, null);
+  assert.equal(hiddenSecond.view.step, 2);
+  assert.equal(hiddenSecond.view.note, "〔1〕同〔2〕喺呢〔行〕只得呢兩格。");
+  assert.equal(hintButtonLabel(2, "hidden_pairs"), "再提示");
+  assert.deepEqual(hintCellClasses("hidden_pairs", 2, hiddenSecond.view.indexes, hidden.cells[0], 0), ["hint-house", "hint"]);
+  assert.equal(hintCellClasses("hidden_pairs", 2, hiddenSecond.view.indexes, 8, grid[8]).includes("hint-evidence"), false);
+  const hiddenThird = pressHint(hiddenSecond.view, grid, hiddenNotes);
+  assert.equal(hiddenThird.clearNotes, null);
+  assert.equal(hiddenThird.view.step, 3);
+  assert.equal(hiddenThird.view.note, "呢兩格刪走其他候選只留 〔1〕、〔2〕。");
+  assert.deepEqual(hintCellClasses("hidden_pairs", 3, hiddenThird.view.indexes, hidden.cells[0], 0), [
+    "hint-house",
+    "hint",
+    "hint-evidence",
+  ]);
+  const hiddenClear = pressHint(hiddenThird.view, grid, hiddenNotes);
   assert.equal(hiddenClear.write, null);
   assert.deepEqual(hiddenClear.clearNotes?.indexes, hidden.cells);
-  assert.equal(hintButtonLabel(3, "obvious_triples"), "清候選");
-  assert.equal(hintButtonLabel(3, "hidden_triples"), "清候選");
 });
 
 test("elimination hints can be stepped from a prepared triple view", () => {
@@ -336,15 +404,94 @@ test("elimination hints can be stepped from a prepared triple view", () => {
     step: 1,
     indexes: [0, 1, 2],
     technique: "obvious_triples",
-    action: { kind: "clear", digits: [2, 5, 7], indexes: [3, 4], keep: [2, 5, 7] },
+    action: { kind: "clear", digits: [2, 5, 7], indexes: [3, 4], keep: [2, 5, 7], unit: "row" },
     note: null,
   };
   const second = pressHint(view, SOLUTION);
   assert.equal(second.write, null);
-  assert.equal(second.view.note, "同單位其他格刪走 〔2、5、7〕。");
-  assert.deepEqual(hintCellClasses("obvious_triples", 2, second.view.indexes, 0, 0), ["hint"]);
-  assert.deepEqual(hintCellClasses("obvious_triples", 2, second.view.indexes, 3, 0), ["hint-evidence"]);
-  const clear = pressHint(second.view, SOLUTION);
+  assert.equal(second.clearNotes, null);
+  assert.equal(second.view.note, "〔2〕、〔5〕、〔7〕一定落喺呢三格（標呢〔行〕）。");
+  assert.deepEqual(hintCellClasses("obvious_triples", 2, second.view.indexes, 0, 0), ["hint-house", "hint"]);
+  assert.deepEqual(hintCellClasses("obvious_triples", 2, second.view.indexes, 3, 0), ["hint-house"]);
+  assert.equal(hintCellClasses("obvious_triples", 2, second.view.indexes, 3, SOLUTION[3]).includes("hint-evidence"), false);
+  const third = pressHint(second.view, SOLUTION);
+  assert.equal(third.clearNotes, null);
+  assert.equal(third.view.note, "同單位其他格刪走 〔2〕、〔5〕、〔7〕。");
+  assert.deepEqual(hintCellClasses("obvious_triples", 3, third.view.indexes, 0, 0), ["hint-house", "hint"]);
+  assert.deepEqual(hintCellClasses("obvious_triples", 3, third.view.indexes, 3, 0), ["hint-evidence"]);
+  const clear = pressHint(third.view, SOLUTION);
   assert.equal(clear.write, null);
   assert.deepEqual(clear.clearNotes, { indexes: [3, 4], digits: [2, 5, 7] });
+
+  const hidden: HintView = {
+    step: 1,
+    indexes: [0, 1, 2],
+    technique: "hidden_triples",
+    action: { kind: "clear", digits: [4, 6], indexes: [0, 1, 2], keep: [1, 2, 3], unit: "box" },
+    note: null,
+  };
+  const hiddenHouse = pressHint(hidden, SOLUTION);
+  assert.equal(hiddenHouse.clearNotes, null);
+  assert.equal(hiddenHouse.view.note, "〔1〕、〔2〕、〔3〕喺呢〔宮〕只得呢三格。");
+  assert.deepEqual(hintCellClasses("hidden_triples", 2, hiddenHouse.view.indexes, 0, 0), ["hint-house", "hint"]);
+  const filled = unitCells(0, "box").find((cell) => cell !== 0 && cell !== 1 && cell !== 2);
+  assert.ok(filled !== undefined);
+  assert.equal(hintCellClasses("hidden_triples", 2, hiddenHouse.view.indexes, filled, 5).includes("hint-evidence"), false);
+  const hiddenList = pressHint(hiddenHouse.view, SOLUTION);
+  assert.equal(hiddenList.clearNotes, null);
+  assert.equal(hiddenList.view.step, 3);
+  assert.equal(hiddenList.view.note, "呢三格刪走其他候選只留 〔1〕、〔2〕、〔3〕。");
+  assert.deepEqual(hintCellClasses("hidden_triples", 3, hiddenList.view.indexes, 0, 0), ["hint-house", "hint", "hint-evidence"]);
+  assert.equal(hintButtonLabel(hiddenList.view.step, "hidden_triples"), "清候選");
+  const hiddenClear = pressHint(hiddenList.view, SOLUTION);
+  assert.equal(hiddenClear.write, null);
+  assert.deepEqual(hiddenClear.clearNotes, { indexes: [0, 1, 2], digits: [4, 6] });
+});
+
+test("the same givens always scan to the same hint, and equal hits are not stuck on the minimum index", () => {
+  const hits = [20, 60];
+  let grid = Array<number>(81).fill(0);
+  const notes = Array<number>(81).fill(0);
+  notes[20] = 1 << 2;
+  notes[60] = 1 << 6;
+  let order = scanOrderFromPuzzle(grid);
+  let first = order.find((cell) => hits.includes(cell));
+  if (first === Math.min(...hits)) {
+    let found = false;
+    for (let index = 0; index < 81 && !found; index++) {
+      if (hits.includes(index)) continue;
+      for (let digit = 1; digit <= 9; digit++) {
+        const next = grid.slice();
+        next[index] = digit;
+        const nextOrder = scanOrderFromPuzzle(next);
+        const nextFirst = nextOrder.find((cell) => hits.includes(cell));
+        if (nextFirst === undefined || nextFirst === Math.min(...hits)) continue;
+        if (findLastFreeCell(next) || findLastRemainingCell(next) || findLastPossibleNumber(next)) continue;
+        grid = next;
+        order = nextOrder;
+        first = nextFirst;
+        found = true;
+        break;
+      }
+    }
+    assert.equal(found, true);
+  }
+  assert.ok(first !== undefined);
+  assert.notEqual(first, Math.min(...hits));
+  const hinted = findHint(grid, notes);
+  const again = findHint(grid, notes);
+  assert.equal(hinted?.technique, "obvious_singles");
+  assert.equal(hinted?.indexes[0], first);
+  assert.deepEqual(again?.indexes, hinted?.indexes);
+  assert.equal(findObviousSingle(grid, notes, order)?.index, hinted?.indexes[0]);
+
+  const givens = Array<number>(81).fill(0);
+  const values = givens.slice();
+  values[4] = 9;
+  const stableNotes = notes.slice();
+  const fromGivens = scanOrderFromPuzzle(givens);
+  assert.notDeepEqual(fromGivens, scanOrderFromPuzzle(values));
+  const stable = findHint(values, stableNotes, givens);
+  assert.equal(stable?.indexes[0], fromGivens.find((cell) => hits.includes(cell)));
+  assert.deepEqual(findHint(values, stableNotes, givens)?.indexes, stable?.indexes);
 });

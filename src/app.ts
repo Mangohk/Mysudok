@@ -66,9 +66,59 @@ export const HOME_BLURB: Record<Difficulty, string> = {
 
 /** Status under the board. The coach line is only for an unfinished, idle game. */
 export function playStatusMarkup(complete: boolean, banner: string | null): string {
-  if (banner) return `<p class="status" role="status">${esc(banner)}</p>`;
+  if (banner) return `<p class="status" role="status">${statusTextHtml(banner)}</p>`;
   if (complete) return "";
   return `<p class="status quiet" data-coach="digit-first">${esc(DIGIT_FIRST_COACH)}</p>`;
+}
+
+/** Title Case names that can show up in a hint sentence. Wrapped so a narrow status line can break them. */
+const STATUS_TECHNIQUE_NAMES = [
+  "Last Free Cell",
+  "Last Remaining Cell",
+  "Last Possible Number",
+  "Notes In Sudoku",
+  "Obvious Singles",
+  "Obvious Pairs",
+  "Obvious Triples",
+  "Hidden Singles",
+  "Hidden Pairs",
+  "Hidden Triples",
+] as const;
+
+function statusTextHtml(text: string): string {
+  let html = esc(text);
+  for (const name of STATUS_TECHNIQUE_NAMES) {
+    html = html.split(name).join(`<span class="tech-name">${name}</span>`);
+  }
+  return html;
+}
+
+/**
+ * Home list for #1–#10. Names and URLs are the locked sudoku.com table.
+ * #11+ stays off this list.
+ */
+export const SKILL_REFERENCE: readonly { rank: number; name: string; href: string }[] = [
+  { rank: 1, name: "Last free cell", href: "https://sudoku.com/sudoku-rules/last-free-cell/" },
+  { rank: 2, name: "Last remaining cell", href: "https://sudoku.com/sudoku-rules/last-remaining-cell/" },
+  { rank: 3, name: "Last possible number", href: "https://sudoku.com/sudoku-rules/last-possible-number/" },
+  { rank: 4, name: "Notes in Sudoku", href: "https://sudoku.com/sudoku-rules/notes-in-sudoku/" },
+  { rank: 5, name: "Obvious singles", href: "https://sudoku.com/sudoku-rules/obvious-singles/" },
+  { rank: 6, name: "Obvious pairs", href: "https://sudoku.com/sudoku-rules/obvious-pairs/" },
+  { rank: 7, name: "Obvious triples", href: "https://sudoku.com/sudoku-rules/obvious-triples/" },
+  { rank: 8, name: "Hidden singles", href: "https://sudoku.com/sudoku-rules/hidden-singles/" },
+  { rank: 9, name: "Hidden pairs", href: "https://sudoku.com/sudoku-rules/hidden-pairs/" },
+  { rank: 10, name: "Hidden triples", href: "https://sudoku.com/sudoku-rules/hidden-triples/" },
+];
+
+/** Secondary link. The primary control on each row is the sudoku.com Reference. */
+export const TECHNIQUE_MAP_HREF = "https://github.com/Mangohk/Mysudok#technique-map";
+
+export function skillReferenceMarkup(): string {
+  const items = SKILL_REFERENCE.map(
+    (skill) =>
+      `<li><span class="skill-rank">#${skill.rank}</span><span class="skill-name">${esc(skill.name)}</span><a href="${esc(skill.href)}" target="_blank" rel="noopener">Reference</a></li>`,
+  ).join("");
+  return `<section class="skills" aria-label="技巧參考"><h2>技巧</h2><ol class="skill-list">${items}</ol><p class="skill-map">GitHub technique map <a href="${esc(TECHNIQUE_MAP_HREF)}" target="_blank" rel="noopener">Technique map</a></p></section>`;
 }
 
 export function mount(root: HTMLElement): void {
@@ -348,7 +398,7 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function showHint(play: Play): void {
-  const result = pressHint(hintViewOf(play), play.values, play.notes);
+  const result = pressHint(hintViewOf(play), play.values, play.notes, play.puzzle.givens.flat());
   if (result.fillCandidates) {
     fillAllCandidates(play);
     applyHintView(play, emptyHintView(null));
@@ -559,6 +609,7 @@ function homeHtml(): string {
         <span class="blurb">${esc(HOME_BLURB.高級)}</span>
       </button>
     </div>
+    ${skillReferenceMarkup()}
     <p class="credit">題目引擎 <a href="https://github.com/mr-girff/openzeloku">openzeloku</a>（MIT）</p>
   </section>`;
 }

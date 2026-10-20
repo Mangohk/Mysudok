@@ -111,6 +111,38 @@ button { cursor: pointer; touch-action: manipulation; }
 .credit { margin-top: 1.75rem; color: var(--muted); font-size: 0.85rem; }
 .credit a { color: inherit; }
 
+.skills { margin-top: 1.6rem; }
+.skills h2 {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  font-weight: 750;
+}
+.skill-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.skill-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+  font-size: 0.92rem;
+}
+.skill-rank {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.7rem;
+}
+.skill-name { font-weight: 650; }
+.skill-list a { margin-left: auto; color: var(--user); font-size: 0.82rem; }
+.skill-map { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.75rem; }
+.skill-map a { color: inherit; }
+
 .loading, .error {
   display: flex;
   flex-direction: column;
@@ -256,6 +288,12 @@ button { cursor: pointer; touch-action: manipulation; }
   box-shadow: inset 0 0 0 3px var(--hint);
   z-index: 1;
 }
+.cell.hint.hint-evidence,
+.cell.hint-house.hint.hint-evidence {
+  background: #e4eef8;
+  box-shadow: inset 0 0 0 3px var(--hint);
+  z-index: 1;
+}
 .cell.bad,
 .cell.bad.thick-r,
 .cell.bad.thick-b {
@@ -310,7 +348,14 @@ button { cursor: pointer; touch-action: manipulation; }
   line-height: 1;
 }
 
-.status { min-height: 1.4em; margin-top: 0.7rem; font-size: 0.95rem; }
+.status {
+  min-height: 1.4em;
+  margin-top: 0.7rem;
+  font-size: 0.95rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.status .tech-name { overflow-wrap: anywhere; }
 .status.quiet { color: var(--muted); }
 
 .confirm {

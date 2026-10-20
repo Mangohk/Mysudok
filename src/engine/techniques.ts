@@ -1,3 +1,5 @@
+import { scanOrderFromPuzzle, scanRanks } from "./scan-order";
+
 /**
  * Human-style technique rater for 9×9 Sudoku (§11).
  *
@@ -255,6 +257,8 @@ export interface ClearSpot {
   digits: number[];
   clearIndexes: number[];
   keep: number[];
+  /** House the pattern was found in. Detection rules are unchanged. */
+  unit: UnitKind;
 }
 
 export interface Analysis {
@@ -309,9 +313,27 @@ function initCandidates(values: number[]): Uint16Array | null {
   return cand;
 }
 
+/**
+ * First hit in historical scan order, or the equal hit earliest in `order`.
+ * A missing or invalid `order` keeps the old short-circuit (row-major units).
+ */
+function takeHit<T>(rank: Uint8Array | null, best: { hit: T; rank: number } | null, hit: T, cellRank: number): { hit: T; rank: number } | null {
+  if (!rank) return { hit, rank: cellRank };
+  if (!best || cellRank < best.rank) return { hit, rank: cellRank };
+  return best;
+}
+
+function patternCellRank(rank: Uint8Array, cells: readonly number[]): number {
+  let best = CELLS;
+  for (const cell of cells) if (rank[cell] < best) best = rank[cell];
+  return best;
+}
+
 /** #1 Last Free Cell. A unit with a single blank. */
-export function findLastFreeCell(values: readonly number[]): FillSpot | null {
+export function findLastFreeCell(values: readonly number[], order?: readonly number[]): FillSpot | null {
   if (values.length !== CELLS) return null;
+  const rank = scanRanks(order);
+  let best: { hit: FillSpot; rank: number } | null = null;
   for (let u = 0; u < UNITS.length; u++) {
     const unit = UNITS[u];
     let empty = -1;
@@ -329,17 +351,21 @@ export function findLastFreeCell(values: readonly number[]): FillSpot | null {
     if (emptyCount !== 1 || empty < 0) continue;
     const digit = digitOfSingle(ALL_DIGITS & ~seen);
     if (digit === 0) continue;
-    return { index: empty, digit, unit: unitKind(u), evidence: unit.filter((index) => index !== empty) };
+    const hit = { index: empty, digit, unit: unitKind(u), evidence: unit.filter((index) => index !== empty) };
+    if (!rank) return hit;
+    best = takeHit(rank, best, hit, rank[empty]);
   }
-  return null;
+  return best?.hit ?? null;
 }
 
 /**
  * #2 Last Remaining Cell. One slot left for a digit, and the unit still has another blank.
  * Scan order inside each house is digit → cell (sudoku.com).
  */
-export function findLastRemainingCell(values: readonly number[]): FillSpot | null {
+export function findLastRemainingCell(values: readonly number[], order?: readonly number[]): FillSpot | null {
   if (values.length !== CELLS) return null;
+  const rank = scanRanks(order);
+  let best: { hit: FillSpot; rank: number } | null = null;
   for (let u = 0; u < UNITS.length; u++) {
     const unit = UNITS[u];
     const empty = unit.filter((index) => (values[index] ?? 0) === 0);
@@ -349,40 +375,49 @@ export function findLastRemainingCell(values: readonly number[]): FillSpot | nul
       const bit = 1 << digit;
       const slots = empty.filter((index) => (placementMask(values, index) & bit) !== 0);
       if (slots.length !== 1) continue;
-      return {
-        index: slots[0],
+      const index = slots[0];
+      const hit = {
+        index,
         digit,
         unit: unitKind(u),
         evidence: blockers(values, unit, digit),
       };
+      if (!rank) return hit;
+      best = takeHit(rank, best, hit, rank[index]);
     }
   }
-  return null;
+  return best?.hit ?? null;
 }
 
 /**
  * #3 Last Possible Number. A cell with one digit left from its row, column, and box.
  * Scan order is cell → digit (sudoku.com).
  */
-export function findLastPossibleNumber(values: readonly number[]): FillSpot | null {
+export function findLastPossibleNumber(values: readonly number[], order?: readonly number[]): FillSpot | null {
   if (values.length !== CELLS) return null;
+  const rank = scanRanks(order);
+  let best: { hit: FillSpot; rank: number } | null = null;
   for (let index = 0; index < CELLS; index++) {
     if ((values[index] ?? 0) !== 0) continue;
     const mask = placementMask(values, index);
     if (popcount(mask) !== 1) continue;
     const digit = digitOfSingle(mask);
     if (digit === 0) continue;
-    return { index, digit, unit: null, evidence: filledHouses(values, index) };
+    const hit = { index, digit, unit: null, evidence: filledHouses(values, index) };
+    if (!rank) return hit;
+    best = takeHit(rank, best, hit, rank[index]);
   }
-  return null;
+  return best?.hit ?? null;
 }
 
 /**
  * #5 Obvious Singles. One remaining candidate that placements alone do not force.
  * `cand` is the player's notes, or the solver mask after eliminations.
  */
-export function findObviousSingle(values: readonly number[], cand: ArrayLike<number>): FillSpot | null {
+export function findObviousSingle(values: readonly number[], cand: ArrayLike<number>, order?: readonly number[]): FillSpot | null {
   if (values.length !== CELLS) return null;
+  const rank = scanRanks(order);
+  let best: { hit: FillSpot; rank: number } | null = null;
   for (let index = 0; index < CELLS; index++) {
     if ((values[index] ?? 0) !== 0) continue;
     const mask = cand[index] ?? 0;
@@ -391,14 +426,18 @@ export function findObviousSingle(values: readonly number[], cand: ArrayLike<num
     if (popcount(legal) <= 1) continue;
     const digit = digitOfSingle(mask);
     if (digit === 0 || (legal & (1 << digit)) === 0) continue;
-    return { index, digit, unit: null, evidence: filledDifferentPeers(values, index, digit) };
+    const hit = { index, digit, unit: null, evidence: filledDifferentPeers(values, index, digit) };
+    if (!rank) return hit;
+    best = takeHit(rank, best, hit, rank[index]);
   }
-  return null;
+  return best?.hit ?? null;
 }
 
 /** #8 Hidden Singles on a candidate mask, ignoring singles already visible from placements. */
-export function findHiddenSingle(values: readonly number[], cand: ArrayLike<number>): FillSpot | null {
+export function findHiddenSingle(values: readonly number[], cand: ArrayLike<number>, order?: readonly number[]): FillSpot | null {
   if (values.length !== CELLS) return null;
+  const rank = scanRanks(order);
+  let best: { hit: FillSpot; rank: number } | null = null;
   for (let u = 0; u < UNITS.length; u++) {
     const unit = UNITS[u];
     for (let digit = 1; digit <= 9; digit++) {
@@ -423,10 +462,12 @@ export function findHiddenSingle(values: readonly number[], cand: ArrayLike<numb
         (index) => (values[index] ?? 0) === 0 && (placementMask(values, index) & bit) !== 0,
       );
       if (slots.length <= 1) continue;
-      return { index: found, digit, unit: unitKind(u), evidence: unit.slice() };
+      const hit = { index: found, digit, unit: unitKind(u), evidence: unit.slice() };
+      if (!rank) return hit;
+      best = takeHit(rank, best, hit, rank[found]);
     }
   }
-  return null;
+  return best?.hit ?? null;
 }
 
 function combinations(length: number, size: number): number[][] {
@@ -448,9 +489,17 @@ function combinations(length: number, size: number): number[][] {
 }
 
 /** #6 / #7 Obvious pairs and triples. */
-export function findObviousSet(values: readonly number[], cand: ArrayLike<number>, size: 2 | 3): ClearSpot | null {
+export function findObviousSet(
+  values: readonly number[],
+  cand: ArrayLike<number>,
+  size: 2 | 3,
+  order?: readonly number[],
+): ClearSpot | null {
   if (values.length !== CELLS) return null;
-  for (const unit of UNITS) {
+  const rank = scanRanks(order);
+  let best: { hit: ClearSpot; rank: number } | null = null;
+  for (let u = 0; u < UNITS.length; u++) {
+    const unit = UNITS[u];
     const cells = unit.filter((index) => {
       if ((values[index] ?? 0) !== 0) return false;
       const count = popcount(cand[index] ?? 0);
@@ -469,16 +518,26 @@ export function findObviousSet(values: readonly number[], cand: ArrayLike<number
       }
       if (clearIndexes.length === 0) continue;
       const digits = maskDigits(union);
-      return { cells: chosen, digits, clearIndexes, keep: digits };
+      const hit = { cells: chosen, digits, clearIndexes, keep: digits, unit: unitKind(u) };
+      if (!rank) return hit;
+      best = takeHit(rank, best, hit, patternCellRank(rank, chosen));
     }
   }
-  return null;
+  return best?.hit ?? null;
 }
 
 /** #9 / #10 Hidden pairs and triples. */
-export function findHiddenSet(values: readonly number[], cand: ArrayLike<number>, size: 2 | 3): ClearSpot | null {
+export function findHiddenSet(
+  values: readonly number[],
+  cand: ArrayLike<number>,
+  size: 2 | 3,
+  order?: readonly number[],
+): ClearSpot | null {
   if (values.length !== CELLS) return null;
-  for (const unit of UNITS) {
+  const rank = scanRanks(order);
+  let best: { hit: ClearSpot; rank: number } | null = null;
+  for (let u = 0; u < UNITS.length; u++) {
+    const unit = UNITS[u];
     const locs: number[][] = Array.from({ length: 10 }, () => []);
     for (const index of unit) {
       if ((values[index] ?? 0) !== 0) continue;
@@ -506,15 +565,18 @@ export function findHiddenSet(values: readonly number[], cand: ArrayLike<number>
         for (let digit = 1; digit <= 9; digit++) if ((remove & (1 << digit)) !== 0) extras.add(digit);
       }
       if (!dirty) continue;
-      return {
+      const hit = {
         cells: cellList,
         digits: [...extras].sort((a, b) => a - b),
         clearIndexes: cellList,
         keep: group.slice().sort((a, b) => a - b),
+        unit: unitKind(u),
       };
+      if (!rank) return hit;
+      best = takeHit(rank, best, hit, patternCellRank(rank, cellList));
     }
   }
-  return null;
+  return best?.hit ?? null;
 }
 
 function applyFill(values: number[], cand: Uint16Array, spot: FillSpot | null): StepResult {
@@ -714,16 +776,18 @@ export function analyze(flat: readonly number[]): Analysis {
   if (!cand) return empty;
 
   const used = new Set<AppliedTechnique>();
+  // Same permutation findHint uses. #11+ keep their own scans.
+  const order = scanOrderFromPuzzle(flat);
   const steps: { id: AppliedTechnique; apply: () => StepResult }[] = [
-    { id: "last_free_cell", apply: () => applyFill(values, cand, findLastFreeCell(values)) },
-    { id: "last_remaining_cell", apply: () => applyFill(values, cand, findLastRemainingCell(values)) },
-    { id: "last_possible_number", apply: () => applyFill(values, cand, findLastPossibleNumber(values)) },
-    { id: "obvious_singles", apply: () => applyFill(values, cand, findObviousSingle(values, cand)) },
-    { id: "obvious_pairs", apply: () => applyClear(cand, findObviousSet(values, cand, 2)) },
-    { id: "obvious_triples", apply: () => applyClear(cand, findObviousSet(values, cand, 3)) },
-    { id: "hidden_singles", apply: () => applyFill(values, cand, findHiddenSingle(values, cand)) },
-    { id: "hidden_pairs", apply: () => applyClear(cand, findHiddenSet(values, cand, 2)) },
-    { id: "hidden_triples", apply: () => applyClear(cand, findHiddenSet(values, cand, 3)) },
+    { id: "last_free_cell", apply: () => applyFill(values, cand, findLastFreeCell(values, order)) },
+    { id: "last_remaining_cell", apply: () => applyFill(values, cand, findLastRemainingCell(values, order)) },
+    { id: "last_possible_number", apply: () => applyFill(values, cand, findLastPossibleNumber(values, order)) },
+    { id: "obvious_singles", apply: () => applyFill(values, cand, findObviousSingle(values, cand, order)) },
+    { id: "obvious_pairs", apply: () => applyClear(cand, findObviousSet(values, cand, 2, order)) },
+    { id: "obvious_triples", apply: () => applyClear(cand, findObviousSet(values, cand, 3, order)) },
+    { id: "hidden_singles", apply: () => applyFill(values, cand, findHiddenSingle(values, cand, order)) },
+    { id: "hidden_pairs", apply: () => applyClear(cand, findHiddenSet(values, cand, 2, order)) },
+    { id: "hidden_triples", apply: () => applyClear(cand, findHiddenSet(values, cand, 3, order)) },
     { id: "pointing_pairs", apply: () => applyPointing(values, cand, 2) },
     { id: "pointing_triples", apply: () => applyPointing(values, cand, 3) },
     { id: "pointing_pairs", apply: () => applyClaiming(values, cand, 2) },
