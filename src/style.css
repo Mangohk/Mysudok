@@ -371,18 +371,6 @@ button { cursor: pointer; touch-action: manipulation; }
 
 .confirm p { flex: 1 1 12rem; margin: 0; }
 
-.undo-bar { margin-top: 0.65rem; }
-
-.undo-bar button {
-  width: 100%;
-  min-height: 44pt;
-  min-width: 44pt;
-  border-radius: 12px;
-  border: 1px solid #e3d6c4;
-  background: #fffdf8;
-  font-weight: 700;
-}
-
 .tools {
   display: flex;
   flex-wrap: wrap;
@@ -392,9 +380,12 @@ button { cursor: pointer; touch-action: manipulation; }
 }
 
 .tools > button[data-action="notes"],
+.tools > button[data-action="undo"],
 .tools > button[data-action="hint"] {
   flex: 1 1 5.5rem;
 }
+
+.tools > button[data-action="undo"] { white-space: nowrap; }
 
 .tools > button.minor {
   flex: 1 1 auto;
@@ -421,6 +412,9 @@ button { cursor: pointer; touch-action: manipulation; }
   right: 0;
   bottom: calc(100% + 0.35rem);
   z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   min-width: 8.5rem;
   padding: 0.35rem;
   border: 1px solid #e3d6c4;
@@ -635,10 +629,8 @@ button:disabled { opacity: 0.4; cursor: default; }
   .play-rail > .status { order: 2; margin-top: 0; overflow-wrap: anywhere; }
   .play-rail > .pad { order: 3; }
   .play-rail > .tools { order: 4; }
-  .play-rail > .undo-bar { order: 5; }
 
   .play-rail > .status,
-  .play-rail > .undo-bar,
   .play-rail > .tools,
   .play-rail > .done,
   .play-rail > .confirm {
@@ -682,7 +674,6 @@ button:disabled { opacity: 0.4; cursor: default; }
 
   .play-rail .tools > button,
   .play-rail .menu > button,
-  .play-rail .undo-bar button,
   .play-rail .done button,
   .play-rail .confirm button {
     min-width: 44pt;

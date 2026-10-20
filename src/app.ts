@@ -328,7 +328,7 @@ function onClick(event: MouseEvent): void {
   if (action === "fill-candidates") {
     fillAllCandidates(play);
     resetHint(play);
-    play.candidateNote = "已填合法候選 · 可撤銷";
+    play.candidateNote = "已填合法候選 · 可上一步";
     render();
     return;
   }
@@ -402,7 +402,7 @@ function showHint(play: Play): void {
   if (result.fillCandidates) {
     fillAllCandidates(play);
     applyHintView(play, emptyHintView(null));
-    play.candidateNote = "已填合法候選 · 可撤銷";
+    play.candidateNote = "已填合法候選 · 可上一步";
     play.selectedCell = null;
     render();
     return;
@@ -410,7 +410,7 @@ function showHint(play: Play): void {
   if (result.clearNotes) {
     clearCandidateDigits(play, result.clearNotes.indexes, result.clearNotes.digits);
     applyHintView(play, result.view);
-    play.candidateNote = "已清候選 · 可撤銷";
+    play.candidateNote = "已清候選 · 可上一步";
     play.selectedCell = null;
     render();
     return;
@@ -547,8 +547,9 @@ function playHtml(play: Play): string {
   const banner = play.hintNote ?? play.candidateNote ?? play.checkNote;
   const status = playStatusMarkup(play.complete, banner);
   const hintLabel = hintButtonLabel(play.hintStep, play.hintTechnique);
+  const locked = play.complete ? "disabled" : "";
   const menu = play.menuOpen
-    ? `<div class="menu-pop" role="menu"><button type="button" data-action="check-wrong">檢查錯格</button></div>`
+    ? `<div class="menu-pop" role="menu"><button type="button" data-action="fill-candidates" ${locked}>填滿候選</button><button type="button" data-action="check-wrong">檢查錯格</button></div>`
     : "";
   const confirm =
     play.confirm === null
@@ -569,7 +570,6 @@ function playHtml(play: Play): string {
         </div>
       </div>`
     : "";
-  const locked = play.complete ? "disabled" : "";
   return `<section class="play">
     <header class="top">
       <div class="top-copy">
@@ -588,15 +588,12 @@ function playHtml(play: Play): string {
       ${boardHtml(play)}
     </div>
     <div class="play-rail">
-      <div class="undo-bar">
-        <button type="button" data-action="undo" ${locked} ${play.undo.length === 0 ? "disabled" : ""}>撤銷</button>
-      </div>
       ${status}
       ${done}
       ${confirm}
       <div class="tools">
         <button type="button" data-action="notes" aria-pressed="${play.pencilMode}" ${locked}>筆記</button>
-        <button type="button" class="minor" data-action="fill-candidates" ${locked}>填滿候選</button>
+        <button type="button" data-action="undo" ${locked} ${play.undo.length === 0 ? "disabled" : ""}>上一步</button>
         <button type="button" data-action="hint" ${locked}>${hintLabel}</button>
         ${
           play.hintTechnique === "notes" && play.hintStep >= 1
@@ -610,7 +607,7 @@ function playHtml(play: Play): string {
       </div>
       ${padHtml(play)}
     </div>
-    <p class="help">1–9 選定數字，再點空格填入。再點同一數字可取消。N 筆記 · Z 撤銷 · H 提示</p>
+    <p class="help">1–9 選定數字，再點空格填入。再點同一數字可取消。N 筆記 · Z 上一步 · H 提示</p>
   </section>`;
 }
 
