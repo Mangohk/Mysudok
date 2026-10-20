@@ -6,9 +6,13 @@ import {
   TECHNIQUE_LABEL,
   TECHNIQUE_ORDER,
   analyze,
+  findClaiming,
+  findFish,
   findLastFreeCell,
   findLastPossibleNumber,
   findLastRemainingCell,
+  findPointing,
+  findYWing,
   isAdvancedTechnique,
   isBeginnerTechnique,
   isIntermediateTechnique,
@@ -222,6 +226,64 @@ test("scan order is a per-puzzle permutation and only tie-breaks equal hits", ()
   assert.equal(solved.solved, true);
   assert.equal(solved.maxTechnique, "last_free_cell");
   assert.deepEqual(solved.values, SOLUTION);
+});
+
+test("advanced finders return a clear, with claiming kept on the pointing ids", () => {
+  const values = Array<number>(81).fill(0);
+  const notes = Array<number>(81).fill(0x3fe);
+  const box = [0, 1, 2, 9, 10, 11, 18, 19, 20];
+  for (const index of box) if (index !== 0 && index !== 1) notes[index] &= ~(1 << 1);
+  const pointing = findPointing(values, notes, 2);
+  assert.ok(pointing);
+  assert.equal(pointing.unit, "box");
+  assert.deepEqual(pointing.cells, [0, 1]);
+  assert.deepEqual(pointing.digits, [1]);
+  assert.deepEqual(pointing.clearIndexes, [3, 4, 5, 6, 7, 8]);
+  assert.equal(findClaiming(values, notes, 2), null);
+
+  const claimNotes = Array<number>(81).fill(0x3fe);
+  for (let col = 2; col < 9; col++) claimNotes[col] &= ~(1 << 1);
+  const claiming = findClaiming(values, claimNotes, 2);
+  assert.ok(claiming);
+  assert.equal(claiming.unit, "row");
+  assert.deepEqual(claiming.cells, [0, 1]);
+  assert.deepEqual(claiming.clearIndexes, [9, 10, 11, 18, 19, 20]);
+  assert.equal(findPointing(values, claimNotes, 2), null);
+
+  const fishNotes = Array<number>(81).fill(0x3fe);
+  for (const row of [0, 4]) {
+    for (let col = 0; col < 9; col++) if (col !== 0 && col !== 7) fishNotes[row * 9 + col] &= ~(1 << 5);
+  }
+  const xwing = findFish(values, fishNotes, 2);
+  assert.ok(xwing);
+  assert.equal(xwing.unit, "row");
+  assert.equal(xwing.cells.length, 4);
+  assert.deepEqual(xwing.digits, [5]);
+  assert.equal(xwing.clearIndexes.length > 0, true);
+  assert.equal(findFish(values, fishNotes, 3), null);
+
+  const swordNotes = Array<number>(81).fill(0x3fe);
+  for (const row of [0, 3, 6]) {
+    for (let col = 0; col < 9; col++) if (![0, 4, 8].includes(col)) swordNotes[row * 9 + col] &= ~(1 << 7);
+  }
+  const swordfish = findFish(values, swordNotes, 3);
+  assert.ok(swordfish);
+  assert.equal(swordfish.unit, "row");
+  assert.equal(swordfish.cells.length, 9);
+  assert.equal(findFish(values, swordNotes, 2), null);
+  assert.equal(findPointing(values, swordNotes, 2), null);
+  assert.equal(findClaiming(values, swordNotes, 2), null);
+
+  const wingNotes = Array<number>(81).fill(0x3fe);
+  wingNotes[0] = (1 << 1) | (1 << 2);
+  wingNotes[5] = (1 << 1) | (1 << 3);
+  wingNotes[45] = (1 << 2) | (1 << 3);
+  const ywing = findYWing(values, wingNotes);
+  assert.ok(ywing);
+  assert.deepEqual(ywing.cells, [0, 5, 45]);
+  assert.deepEqual(ywing.digits, [3]);
+  assert.deepEqual(ywing.keep, [1, 2]);
+  assert.deepEqual(ywing.clearIndexes, [50]);
 });
 
 test("solved ratings never disagree with countSolutions", () => {

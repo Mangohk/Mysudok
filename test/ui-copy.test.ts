@@ -42,6 +42,16 @@ test("home skill reference is the locked #1–#10 sudoku.com table", () => {
   assert.equal(html.includes("\u00ad"), false);
 });
 
+test("hint status wraps advanced Title Case names without adding home reference rows", () => {
+  for (const name of ["Pointing Pairs", "Pointing Triples", "X-Wing", "Y-Wing", "Swordfish"]) {
+    const html = playStatusMarkup(false, `呢幾格可用〔${name}〕：〔原因〕。`);
+    assert.match(html, new RegExp(`<span class="tech-name">${name}</span>`));
+    assert.equal(html.includes("\u00ad"), false);
+    assert.equal(html.includes(CEILING_LABEL), false);
+  }
+  assert.equal(skillReferenceMarkup().includes("pointing-pairs"), false);
+});
+
 test("hint status wraps English technique names without a soft hyphen", () => {
   const hint = "這一格可用〔Last Remaining Cell〕：〔呢行仲有空位，呢個數只可以放喺呢一格〕。";
   const hinted = playStatusMarkup(false, hint);

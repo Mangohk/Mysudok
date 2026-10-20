@@ -32,6 +32,8 @@ import { scanOrderFromPuzzle, scanRanks } from "./scan-order";
  * hidden_singles, naked_pair → obvious_pairs, hidden_pair → hidden_pairs.
  * Pointing and box-line reduction are advanced-band thresholds. Box-line
  * (claiming) is applied and recorded as Pointing Pairs or Pointing Triples.
+ * `findPointing` / `findClaiming` / `findFish` / `findYWing` are the detectors
+ * `analyze` applies and `findHint` teaches. Hints do not keep a second copy.
  *
  * Seeds still come from openzeloku. This rater does not call `rate()`.
  */
@@ -599,83 +601,118 @@ function applyClear(cand: Uint16Array, spot: ClearSpot | null): StepResult {
   return changed ? "progress" : "stuck";
 }
 
-function eliminateDigitOutside(
-  values: number[],
-  cand: Uint16Array,
+function openCells(values: readonly number[], cand: ArrayLike<number>, cells: readonly number[], bit: number): number[] {
+  const open: number[] = [];
+  for (const index of cells) {
+    if ((values[index] ?? 0) !== 0) continue;
+    if (((cand[index] ?? 0) & bit) === 0) continue;
+    open.push(index);
+  }
+  return open;
+}
+
+function clearsOutside(
+  values: readonly number[],
+  cand: ArrayLike<number>,
   hosts: readonly number[],
   line: readonly number[],
   bit: number,
-): StepResult {
+): number[] {
   const host = new Set(hosts);
-  let changed = false;
-  for (const index of line) {
-    if (host.has(index) || values[index] !== 0) continue;
-    if ((cand[index] & bit) === 0) continue;
-    cand[index] &= ~bit;
-    changed = true;
-    if (cand[index] === 0) return "contradiction";
-  }
-  return changed ? "progress" : "stuck";
+  return line.filter((index) => !host.has(index) && (values[index] ?? 0) === 0 && ((cand[index] ?? 0) & bit) !== 0);
 }
 
-function applyPointing(values: number[], cand: Uint16Array, size: 2 | 3): StepResult {
-  let changed = false;
+/**
+ * #11 / #12 box → line. `unit` is the box. Pattern cells are the aligned
+ * candidates; `clearIndexes` are the same line outside that box.
+ */
+export function findPointing(
+  values: readonly number[],
+  cand: ArrayLike<number>,
+  size: 2 | 3,
+): ClearSpot | null {
+  if (values.length !== CELLS) return null;
   for (const box of BOXES) {
     for (let digit = 1; digit <= 9; digit++) {
       const bit = 1 << digit;
-      const cells = box.filter((index) => values[index] === 0 && (cand[index] & bit) !== 0);
+      const cells = openCells(values, cand, box, bit);
       if (cells.length !== size) continue;
-      const row = rowOf(cells[0]);
-      const col = colOf(cells[0]);
-      if (cells.every((index) => rowOf(index) === row)) {
-        const step = eliminateDigitOutside(values, cand, box, ROWS[row], bit);
-        if (step === "contradiction") return step;
-        if (step === "progress") changed = true;
-      } else if (cells.every((index) => colOf(index) === col)) {
-        const step = eliminateDigitOutside(values, cand, box, COLS[col], bit);
-        if (step === "contradiction") return step;
-        if (step === "progress") changed = true;
-      }
+      const row = rowOf(cells[0] ?? 0);
+      const col = colOf(cells[0] ?? 0);
+      const line = cells.every((index) => rowOf(index) === row)
+        ? ROWS[row]
+        : cells.every((index) => colOf(index) === col)
+          ? COLS[col]
+          : null;
+      if (!line) continue;
+      const clearIndexes = clearsOutside(values, cand, box, line, bit);
+      if (clearIndexes.length === 0) continue;
+      return { cells: cells.slice(), digits: [digit], clearIndexes, keep: [digit], unit: "box" };
     }
   }
-  return changed ? "progress" : "stuck";
+  return null;
 }
 
-/** Box-line reduction. Recorded by the caller as pointing pairs or triples. */
-function applyClaiming(values: number[], cand: Uint16Array, size: 2 | 3): StepResult {
-  let changed = false;
-  const lines = [...ROWS, ...COLS];
+/**
+ * #11 / #12 line → box (claiming). Recorded as Pointing Pairs or Pointing
+ * Triples. `unit` is the line, so teaching copy can say line → box.
+ */
+export function findClaiming(
+  values: readonly number[],
+  cand: ArrayLike<number>,
+  size: 2 | 3,
+): ClearSpot | null {
+  if (values.length !== CELLS) return null;
+  const lines: { cells: readonly number[]; kind: "row" | "col" }[] = [
+    ...ROWS.map((cells) => ({ cells, kind: "row" as const })),
+    ...COLS.map((cells) => ({ cells, kind: "col" as const })),
+  ];
   for (const line of lines) {
     for (let digit = 1; digit <= 9; digit++) {
       const bit = 1 << digit;
-      const cells = line.filter((index) => values[index] === 0 && (cand[index] & bit) !== 0);
+      const cells = openCells(values, cand, line.cells, bit);
       if (cells.length !== size) continue;
-      const box = boxOf(cells[0]);
+      const box = boxOf(cells[0] ?? 0);
       if (!cells.every((index) => boxOf(index) === box)) continue;
-      const step = eliminateDigitOutside(values, cand, line, BOXES[box], bit);
-      if (step === "contradiction") return step;
-      if (step === "progress") changed = true;
+      const clearIndexes = clearsOutside(values, cand, line.cells, BOXES[box] ?? [], bit);
+      if (clearIndexes.length === 0) continue;
+      return { cells: cells.slice(), digits: [digit], clearIndexes, keep: [digit], unit: line.kind };
     }
   }
-  return changed ? "progress" : "stuck";
+  return null;
 }
 
-function applyFish(values: number[], cand: Uint16Array, size: 2 | 3): StepResult {
-  let changed = false;
-  const strike = (base: number[], cover: number[], digitBit: number, byRow: boolean) => {
-    for (let other = 0; other < N; other++) {
-      if (base.includes(other)) continue;
-      for (const cross of cover) {
-        const index = byRow ? other * N + cross : cross * N + other;
-        if (values[index] !== 0 || (cand[index] & digitBit) === 0) continue;
-        cand[index] &= ~digitBit;
-        changed = true;
-        if (cand[index] === 0) return "contradiction" as const;
-      }
+function fishGeometry(
+  values: readonly number[],
+  cand: ArrayLike<number>,
+  base: readonly number[],
+  cover: readonly number[],
+  bit: number,
+  byRow: boolean,
+): { cells: number[]; clearIndexes: number[] } {
+  const cells: number[] = [];
+  for (const unit of base) {
+    for (const cross of cover) {
+      const index = byRow ? unit * N + cross : cross * N + unit;
+      if ((values[index] ?? 0) !== 0 || ((cand[index] ?? 0) & bit) === 0) continue;
+      cells.push(index);
     }
-    return "progress" as const;
-  };
+  }
+  const clearIndexes: number[] = [];
+  for (let other = 0; other < N; other++) {
+    if (base.includes(other)) continue;
+    for (const cross of cover) {
+      const index = byRow ? other * N + cross : cross * N + other;
+      if ((values[index] ?? 0) !== 0 || ((cand[index] ?? 0) & bit) === 0) continue;
+      clearIndexes.push(index);
+    }
+  }
+  return { cells, clearIndexes };
+}
 
+/** #13 X-Wing (`size` 2) and #15 Swordfish (`size` 3). `unit` is the base line. */
+export function findFish(values: readonly number[], cand: ArrayLike<number>, size: 2 | 3): ClearSpot | null {
+  if (values.length !== CELLS) return null;
   for (let digit = 1; digit <= 9; digit++) {
     const bit = 1 << digit;
     const rowCols: number[][] = [];
@@ -684,7 +721,7 @@ function applyFish(values: number[], cand: Uint16Array, size: 2 | 3): StepResult
       const cols: number[] = [];
       for (let col = 0; col < N; col++) {
         const index = row * N + col;
-        if (values[index] === 0 && (cand[index] & bit) !== 0) cols.push(col);
+        if ((values[index] ?? 0) === 0 && ((cand[index] ?? 0) & bit) !== 0) cols.push(col);
       }
       rowCols.push(cols);
     }
@@ -692,45 +729,57 @@ function applyFish(values: number[], cand: Uint16Array, size: 2 | 3): StepResult
       const rows: number[] = [];
       for (let row = 0; row < N; row++) {
         const index = row * N + col;
-        if (values[index] === 0 && (cand[index] & bit) !== 0) rows.push(row);
+        if ((values[index] ?? 0) === 0 && ((cand[index] ?? 0) & bit) !== 0) rows.push(row);
       }
       colRows.push(rows);
     }
-    const usableRows = rowCols.map((cols, row) => (cols.length >= 2 && cols.length <= size ? row : -1)).filter((row) => row >= 0);
+    const usableRows = rowCols
+      .map((cols, row) => (cols.length >= 2 && cols.length <= size ? row : -1))
+      .filter((row) => row >= 0);
     for (const pick of combinations(usableRows.length, size)) {
-      const rows = pick.map((index) => usableRows[index]);
+      const rows = pick.map((index) => usableRows[index] ?? -1);
       const cover = new Set<number>();
-      for (const row of rows) for (const col of rowCols[row]) cover.add(col);
+      for (const row of rows) for (const col of rowCols[row] ?? []) cover.add(col);
       if (cover.size !== size) continue;
-      const step = strike(rows, [...cover], bit, true);
-      if (step === "contradiction") return step;
+      const geometry = fishGeometry(values, cand, rows, [...cover].sort((a, b) => a - b), bit, true);
+      if (geometry.clearIndexes.length === 0) continue;
+      return { ...geometry, digits: [digit], keep: [digit], unit: "row" };
     }
-    const usableCols = colRows.map((rows, col) => (rows.length >= 2 && rows.length <= size ? col : -1)).filter((col) => col >= 0);
+    const usableCols = colRows
+      .map((rows, col) => (rows.length >= 2 && rows.length <= size ? col : -1))
+      .filter((col) => col >= 0);
     for (const pick of combinations(usableCols.length, size)) {
-      const cols = pick.map((index) => usableCols[index]);
+      const cols = pick.map((index) => usableCols[index] ?? -1);
       const cover = new Set<number>();
-      for (const col of cols) for (const row of colRows[col]) cover.add(row);
+      for (const col of cols) for (const row of colRows[col] ?? []) cover.add(row);
       if (cover.size !== size) continue;
-      const step = strike(cols, [...cover], bit, false);
-      if (step === "contradiction") return step;
+      const geometry = fishGeometry(values, cand, cols, [...cover].sort((a, b) => a - b), bit, false);
+      if (geometry.clearIndexes.length === 0) continue;
+      return { ...geometry, digits: [digit], keep: [digit], unit: "col" };
     }
   }
-  return changed ? "progress" : "stuck";
+  return null;
 }
 
-function applyYWing(values: number[], cand: Uint16Array): StepResult {
+/**
+ * #14 Y-Wing. `cells` is pivot, then the two pincers.
+ * `digits` is the shared pincer candidate to clear. `keep` is the pivot pair.
+ * `unit` is unused for the house; the triangle is the three pattern cells.
+ */
+export function findYWing(values: readonly number[], cand: ArrayLike<number>): ClearSpot | null {
+  if (values.length !== CELLS) return null;
   const cells: number[] = [];
   for (let index = 0; index < CELLS; index++) {
-    if (values[index] === 0 && popcount(cand[index]) === 2) cells.push(index);
+    if ((values[index] ?? 0) === 0 && popcount(cand[index] ?? 0) === 2) cells.push(index);
   }
-  let changed = false;
   for (const pivot of cells) {
-    const pivotDigits = maskDigits(cand[pivot]);
+    const pivotDigits = maskDigits(cand[pivot] ?? 0);
     if (pivotDigits.length !== 2) continue;
-    const [a, b] = pivotDigits;
+    const a = pivotDigits[0] ?? 0;
+    const b = pivotDigits[1] ?? 0;
     for (const first of PEERS[pivot] ?? []) {
-      if (values[first] !== 0 || popcount(cand[first]) !== 2) continue;
-      const firstDigits = maskDigits(cand[first]);
+      if ((values[first] ?? 0) !== 0 || popcount(cand[first] ?? 0) !== 2) continue;
+      const firstDigits = maskDigits(cand[first] ?? 0);
       const shared = firstDigits.filter((digit) => digit === a || digit === b);
       if (shared.length !== 1) continue;
       const extra = firstDigits.find((digit) => digit !== a && digit !== b);
@@ -738,19 +787,117 @@ function applyYWing(values: number[], cand: Uint16Array): StepResult {
       const other = shared[0] === a ? b : a;
       const wing = (1 << other) | (1 << extra);
       for (const second of PEERS[pivot] ?? []) {
-        if (second === first || values[second] !== 0 || cand[second] !== wing) continue;
+        if (second === first || (values[second] ?? 0) !== 0 || (cand[second] ?? 0) !== wing) continue;
         const seen = new Set(PEERS[first] ?? []);
+        const clearIndexes: number[] = [];
         for (const target of PEERS[second] ?? []) {
           if (target === pivot || target === first || target === second || !seen.has(target)) continue;
-          if (values[target] !== 0 || (cand[target] & (1 << extra)) === 0) continue;
-          cand[target] &= ~(1 << extra);
-          changed = true;
-          if (cand[target] === 0) return "contradiction";
+          if ((values[target] ?? 0) !== 0 || ((cand[target] ?? 0) & (1 << extra)) === 0) continue;
+          clearIndexes.push(target);
         }
+        if (clearIndexes.length === 0) continue;
+        clearIndexes.sort((left, right) => left - right);
+        return {
+          cells: [pivot, first, second],
+          digits: [extra],
+          clearIndexes,
+          keep: [a, b],
+          unit: "row",
+        };
       }
     }
   }
-  return changed ? "progress" : "stuck";
+  return null;
+}
+
+type FoundStep =
+  | { id: AppliedTechnique; kind: "fill"; spot: FillSpot }
+  | { id: AppliedTechnique; kind: "clear"; spot: ClearSpot };
+
+interface SolverStep {
+  id: AppliedTechnique;
+  find: () => FoundStep | null;
+}
+
+function asFill(id: AppliedTechnique, spot: FillSpot | null): FoundStep | null {
+  return spot ? { id, kind: "fill", spot } : null;
+}
+
+function asClear(id: AppliedTechnique, spot: ClearSpot | null): FoundStep | null {
+  return spot ? { id, kind: "clear", spot } : null;
+}
+
+/** Same order `findHint` uses after the notes gate. #11 is pointing, then claiming. */
+function solverSteps(values: number[], cand: ArrayLike<number>, order: readonly number[]): SolverStep[] {
+  return [
+    { id: "last_free_cell", find: () => asFill("last_free_cell", findLastFreeCell(values, order)) },
+    { id: "last_remaining_cell", find: () => asFill("last_remaining_cell", findLastRemainingCell(values, order)) },
+    { id: "last_possible_number", find: () => asFill("last_possible_number", findLastPossibleNumber(values, order)) },
+    { id: "obvious_singles", find: () => asFill("obvious_singles", findObviousSingle(values, cand, order)) },
+    { id: "obvious_pairs", find: () => asClear("obvious_pairs", findObviousSet(values, cand, 2, order)) },
+    { id: "obvious_triples", find: () => asClear("obvious_triples", findObviousSet(values, cand, 3, order)) },
+    { id: "hidden_singles", find: () => asFill("hidden_singles", findHiddenSingle(values, cand, order)) },
+    { id: "hidden_pairs", find: () => asClear("hidden_pairs", findHiddenSet(values, cand, 2, order)) },
+    { id: "hidden_triples", find: () => asClear("hidden_triples", findHiddenSet(values, cand, 3, order)) },
+    { id: "pointing_pairs", find: () => asClear("pointing_pairs", findPointing(values, cand, 2)) },
+    { id: "pointing_pairs", find: () => asClear("pointing_pairs", findClaiming(values, cand, 2)) },
+    { id: "pointing_triples", find: () => asClear("pointing_triples", findPointing(values, cand, 3)) },
+    { id: "pointing_triples", find: () => asClear("pointing_triples", findClaiming(values, cand, 3)) },
+    { id: "x_wing", find: () => asClear("x_wing", findFish(values, cand, 2)) },
+    { id: "y_wing", find: () => asClear("y_wing", findYWing(values, cand)) },
+    { id: "swordfish", find: () => asClear("swordfish", findFish(values, cand, 3)) },
+  ];
+}
+
+type WalkResult =
+  | { status: "done"; values: number[]; used: Set<AppliedTechnique> }
+  | { status: "fail"; values: number[] }
+  | { status: "snapshot"; values: number[]; candidates: number[] };
+
+function walkSolver(flat: readonly number[], stopAt: AppliedTechnique | null): WalkResult {
+  const values = flat.slice();
+  if (flat.length !== CELLS) return { status: "fail", values };
+  if (values.every((value) => value !== 0)) return { status: "done", values, used: new Set() };
+  const cand = initCandidates(values);
+  if (!cand) return { status: "fail", values };
+  // Same permutation findHint uses for #1–#10. #11+ keep their geometric scans.
+  const order = scanOrderFromPuzzle(flat);
+  const steps = solverSteps(values, cand, order);
+  const used = new Set<AppliedTechnique>();
+  for (let guard = 0; guard < 900; guard++) {
+    if (values.every((value) => value !== 0)) break;
+    let acted = false;
+    for (const step of steps) {
+      const found = step.find();
+      if (!found) continue;
+      if (stopAt !== null && found.id === stopAt) {
+        return { status: "snapshot", values: values.slice(), candidates: Array.from(cand) };
+      }
+      const result = found.kind === "fill" ? applyFill(values, cand, found.spot) : applyClear(cand, found.spot);
+      if (result === "contradiction") return { status: "fail", values };
+      if (result === "stuck") continue;
+      used.add(found.id);
+      acted = true;
+      break;
+    }
+    if (!acted) break;
+    if (contradictory(values, cand)) return { status: "fail", values };
+  }
+  if (!values.every((value) => value !== 0)) return { status: "fail", values };
+  return { status: "done", values, used };
+}
+
+/**
+ * Grid and candidate mask at the moment `id` is the next §11 step.
+ * Null when the solve never reaches that technique.
+ */
+export function snapshotBeforeTechnique(
+  flat: readonly number[],
+  id: AppliedTechnique,
+): { values: number[]; candidates: number[] } | null {
+  const walk = walkSolver(flat, id);
+  if (walk.status !== "snapshot") return null;
+  return { values: walk.values, candidates: walk.candidates };
 }
 
 /**
@@ -765,59 +912,11 @@ export function analyze(flat: readonly number[]): Analysis {
     techniques: [],
     values: flat.slice(),
   };
-  if (flat.length !== CELLS) return empty;
-
-  const values = flat.slice();
-  if (values.every((value) => value !== 0)) {
-    return { solved: true, maxTechnique: null, techniques: [], values };
-  }
-
-  const cand = initCandidates(values);
-  if (!cand) return empty;
-
-  const used = new Set<AppliedTechnique>();
-  // Same permutation findHint uses. #11+ keep their own scans.
-  const order = scanOrderFromPuzzle(flat);
-  const steps: { id: AppliedTechnique; apply: () => StepResult }[] = [
-    { id: "last_free_cell", apply: () => applyFill(values, cand, findLastFreeCell(values, order)) },
-    { id: "last_remaining_cell", apply: () => applyFill(values, cand, findLastRemainingCell(values, order)) },
-    { id: "last_possible_number", apply: () => applyFill(values, cand, findLastPossibleNumber(values, order)) },
-    { id: "obvious_singles", apply: () => applyFill(values, cand, findObviousSingle(values, cand, order)) },
-    { id: "obvious_pairs", apply: () => applyClear(cand, findObviousSet(values, cand, 2, order)) },
-    { id: "obvious_triples", apply: () => applyClear(cand, findObviousSet(values, cand, 3, order)) },
-    { id: "hidden_singles", apply: () => applyFill(values, cand, findHiddenSingle(values, cand, order)) },
-    { id: "hidden_pairs", apply: () => applyClear(cand, findHiddenSet(values, cand, 2, order)) },
-    { id: "hidden_triples", apply: () => applyClear(cand, findHiddenSet(values, cand, 3, order)) },
-    { id: "pointing_pairs", apply: () => applyPointing(values, cand, 2) },
-    { id: "pointing_triples", apply: () => applyPointing(values, cand, 3) },
-    { id: "pointing_pairs", apply: () => applyClaiming(values, cand, 2) },
-    { id: "pointing_triples", apply: () => applyClaiming(values, cand, 3) },
-    { id: "x_wing", apply: () => applyFish(values, cand, 2) },
-    { id: "y_wing", apply: () => applyYWing(values, cand) },
-    { id: "swordfish", apply: () => applyFish(values, cand, 3) },
-  ];
-
-  for (let guard = 0; guard < 900; guard++) {
-    if (values.every((value) => value !== 0)) break;
-    let acted = false;
-    for (const step of steps) {
-      const result = step.apply();
-      if (result === "contradiction") return { ...empty, values };
-      if (result === "stuck") continue;
-      used.add(step.id);
-      acted = true;
-      break;
-    }
-    if (!acted) break;
-    if (contradictory(values, cand)) return { ...empty, values };
-  }
-
-  const solved = values.every((value) => value !== 0);
-  if (!solved) return { ...empty, values };
-
-  const techniques = TECHNIQUE_ORDER.filter((id) => used.has(id));
+  const walk = walkSolver(flat, null);
+  if (walk.status !== "done") return { ...empty, values: walk.values };
+  const techniques = TECHNIQUE_ORDER.filter((id) => walk.used.has(id));
   const maxTechnique = techniques.length > 0 ? techniques[techniques.length - 1] : null;
-  return { solved: true, maxTechnique, techniques, values };
+  return { solved: true, maxTechnique, techniques, values: walk.values };
 }
 
 export function flatToRows(flat: readonly number[]): number[][] {

@@ -119,7 +119,7 @@ The practice bank is a static JSONL asset (1300 puzzles, 100 for each open techn
 
 中級: `maxTechnique` is one of #5–#10. The solve used an intermediate technique and did not need #11+.
 
-高級: the solve path includes at least one of #11–#15. Hint UI for those steps is out of scope. Box-line reduction is applied and counted as Pointing Pairs or Pointing Triples.
+高級: the solve path includes at least one of #11–#15. The hint button teaches those clears after #1–#10: Pointing Pairs and Pointing Triples (box → line, then line → box claiming under the same names), X-Wing, Y-Wing, and Swordfish. Box-line reduction is applied and counted as Pointing Pairs or Pointing Triples.
 
 Anything still unsolved after Swordfish is rejected.
 
@@ -133,4 +133,4 @@ Puzzle engine: [openzeloku](https://github.com/mr-girff/openzeloku) by Zeloku, M
 
 ## Out of scope
 
-Accounts, saved progress, skill trees, exams, any server, and hint UI for techniques #11–#15.
+Accounts, saved progress, skill trees, exams, and any server.

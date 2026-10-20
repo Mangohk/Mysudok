@@ -1,6 +1,9 @@
 import { lastFreeEvidence, lastPossibleEvidence, lastRemainingEvidence } from "../board-input";
 import { scanOrderFromPuzzle } from "./scan-order";
 import {
+  colOf,
+  findClaiming,
+  findFish,
   findHiddenSet,
   findHiddenSingle,
   findLastFreeCell,
@@ -8,6 +11,9 @@ import {
   findLastRemainingCell,
   findObviousSet,
   findObviousSingle,
+  findPointing,
+  findYWing,
+  rowOf,
   TECHNIQUE_LABEL,
   unitCells,
   type AppliedTechnique,
@@ -34,7 +40,17 @@ export interface StepHint {
 
 const FILL3 = new Set(["last_free_cell", "last_remaining_cell", "last_possible_number"]);
 const FILL4 = new Set(["obvious_singles", "hidden_singles"]);
-const CLEAR4 = new Set(["obvious_pairs", "obvious_triples", "hidden_pairs", "hidden_triples"]);
+const CLEAR4 = new Set([
+  "obvious_pairs",
+  "obvious_triples",
+  "hidden_pairs",
+  "hidden_triples",
+  "pointing_pairs",
+  "pointing_triples",
+  "x_wing",
+  "y_wing",
+  "swordfish",
+]);
 
 const REASONS: Record<string, string> = {
   last_free_cell: "只剩這一格空白",
@@ -46,9 +62,14 @@ const REASONS: Record<string, string> = {
   hidden_singles: "呢個數字喺呢一區只可以放喺呢一格",
   hidden_pairs: "兩個數字喺呢一區只可以放喺兩格",
   hidden_triples: "三個數字喺呢一區只可以放喺三格",
+  pointing_pairs: "同一宮兩格候選對齊一行／列",
+  pointing_triples: "同一宮三格候選對齊一行／列",
+  x_wing: "兩行／列嘅候選對齊成 X",
+  y_wing: "一格樞紐加兩格夾擊",
+  swordfish: "三行／列嘅候選對齊成魚",
 };
 
-/** Shown when #1–#10 have no usable step. Advanced hints stay out of scope. */
+/** Shown when #1–#15 have no usable step. */
 export const HINT_STUCK = "解唔落。";
 
 export const HINT_NOTES =
@@ -102,8 +123,9 @@ function puzzleOrder(flat: readonly number[], givensFlat?: readonly number[]): r
 }
 
 /**
- * Local hint scan. #1 → #2 → #3, then the Notes gate, then #5 → #10.
- * Does not call openzeloku `nextHint`. #11–#15 are generation thresholds only.
+ * Local hint scan. #1 → #2 → #3, then the Notes gate, then #5 → #10, then #11 → #15.
+ * #11 and #12 try box → line pointing before line → box claiming.
+ * Does not call openzeloku `nextHint`.
  */
 export function findHint(flat: readonly number[], notes?: readonly number[], givensFlat?: readonly number[]): StepHint | null {
   if (flat.length !== 81 || flat.every((value) => value !== 0)) return null;
@@ -133,6 +155,20 @@ export function findHint(flat: readonly number[], notes?: readonly number[], giv
   if (hiddenPair) return clearHint("hidden_pairs", hiddenPair);
   const hiddenTriple = findHiddenSet(flat, masks, 3, order);
   if (hiddenTriple) return clearHint("hidden_triples", hiddenTriple);
+  const pointingPair = findPointing(flat, masks, 2);
+  if (pointingPair) return clearHint("pointing_pairs", pointingPair);
+  const claimingPair = findClaiming(flat, masks, 2);
+  if (claimingPair) return clearHint("pointing_pairs", claimingPair);
+  const pointingTriple = findPointing(flat, masks, 3);
+  if (pointingTriple) return clearHint("pointing_triples", pointingTriple);
+  const claimingTriple = findClaiming(flat, masks, 3);
+  if (claimingTriple) return clearHint("pointing_triples", claimingTriple);
+  const xWing = findFish(flat, masks, 2);
+  if (xWing) return clearHint("x_wing", xWing);
+  const yWing = findYWing(flat, masks);
+  if (yWing) return clearHint("y_wing", yWing);
+  const swordfish = findFish(flat, masks, 3);
+  if (swordfish) return clearHint("swordfish", swordfish);
   return null;
 }
 
@@ -145,6 +181,14 @@ const HOUSE_WORD: Record<UnitKind, string> = {
 function reasonFor(hint: StepHint): string {
   if (hint.technique === "last_remaining_cell" && hint.action.kind === "fill" && hint.action.unit) {
     return `呢${HOUSE_WORD[hint.action.unit]}仲有空位，呢個數只可以放喺呢一格`;
+  }
+  if (
+    (hint.technique === "pointing_pairs" || hint.technique === "pointing_triples") &&
+    hint.action.kind === "clear" &&
+    hint.action.unit !== "box"
+  ) {
+    const size = hint.technique === "pointing_pairs" ? "兩格" : "三格";
+    return `同一行／列${size}候選對齊一宮`;
   }
   return REASONS[hint.technique] ?? "可以跟呢個技巧睇下一步";
 }
@@ -195,20 +239,67 @@ function bracketDigits(digits: readonly number[]): string {
   return digits.map((digit) => `〔${digit}〕`).join("、");
 }
 
-/** L2 for #6/#7/#9/#10: the locked digits and the house. Numbers appear here first. */
-export function hintClearLockedText(technique: string, digits: readonly number[], unit: UnitKind): string {
+/** L2 for a clear: the locked digits and the house. Numbers appear here first. */
+export function hintClearLockedText(
+  technique: string,
+  digits: readonly number[],
+  unit: UnitKind,
+  elim?: readonly number[],
+): string {
   const house = HOUSE_WORD[unit];
   const [a, b, c] = digits;
   if (technique === "obvious_pairs") return `〔${a}〕同〔${b}〕一定分別落喺呢兩格（標呢〔${house}〕）。`;
   if (technique === "obvious_triples") return `〔${a}〕、〔${b}〕、〔${c}〕一定落喺呢三格（標呢〔${house}〕）。`;
   if (technique === "hidden_pairs") return `〔${a}〕同〔${b}〕喺呢〔${house}〕只得呢兩格。`;
+  if (technique === "pointing_pairs" || technique === "pointing_triples") {
+    const n = digits[0];
+    const sizeWord = technique === "pointing_pairs" ? "兩格" : "三格";
+    if (unit === "box") return `〔${n}〕喺呢〔宮〕只可以落喺呢${sizeWord}（${sizeWord}同行／列）。`;
+    return `〔${n}〕喺呢〔${house}〕只可以落喺呢${sizeWord}（${sizeWord}同宮）。`;
+  }
+  if (technique === "x_wing") {
+    const base = unit === "col" ? "列" : "行";
+    return `〔${a}〕喺呢兩〔${base}〕只得呢四格，一定佔對角鎖定。`;
+  }
+  if (technique === "swordfish") {
+    const base = unit === "col" ? "列" : "行";
+    const cover = unit === "col" ? "行" : "列";
+    return `〔${a}〕喺呢三〔${base}〕對齊三個〔${cover}〕，無論點擺都會蓋住。`;
+  }
+  if (technique === "y_wing") {
+    const n = elim?.[0] ?? a;
+    return `樞紐 〔${a}〕、〔${b}〕；夾擊共有 〔${n}〕——無論邊邊真，相交位都唔可以留 〔${n}〕。`;
+  }
   return `〔${a}〕、〔${b}〕、〔${c}〕喺呢〔${house}〕只得呢三格。`;
 }
 
 /** L3 for an elimination: what to clear or keep. Each digit sits in its own brackets. */
-export function hintClearReveal(technique: string, digits: readonly number[], keep: readonly number[]): string {
+export function hintClearReveal(
+  technique: string,
+  digits: readonly number[],
+  keep: readonly number[],
+  unit?: UnitKind,
+  line?: UnitKind,
+): string {
   if (technique === "hidden_pairs") return `呢兩格刪走其他候選只留 ${bracketDigits(keep)}。`;
   if (technique === "hidden_triples") return `呢三格刪走其他候選只留 ${bracketDigits(keep)}。`;
+  if (technique === "pointing_pairs" || technique === "pointing_triples") {
+    const n = digits[0];
+    if (unit === "box") {
+      const word = line === "col" ? "列" : "行";
+      return `呢〔${word}〕其餘格刪走 〔${n}〕。`;
+    }
+    return `呢〔宮〕其餘格刪走 〔${n}〕。`;
+  }
+  if (technique === "x_wing") {
+    const cover = unit === "col" ? "行" : "列";
+    return `呢兩〔${cover}〕其餘格刪走 〔${digits[0]}〕。`;
+  }
+  if (technique === "swordfish") {
+    const cover = unit === "col" ? "行" : "列";
+    return `呢三〔${cover}〕其餘格刪走 〔${digits[0]}〕。`;
+  }
+  if (technique === "y_wing") return `相交格刪走 〔${digits[0]}〕。`;
   return `同單位其他格刪走 ${bracketDigits(digits)}。`;
 }
 
@@ -268,7 +359,7 @@ function stuck(): HintPress {
 /**
  * One press of the hint control.
  * #1–#3 write on the third press. #5 and #8 keep the four-press fill.
- * #6/#7/#9/#10 clear notes on the fourth press. Notes fills candidates, never a digit.
+ * #6/#7/#9/#10 and #11–#15 clear notes on the fourth press. Notes fills candidates, never a digit.
  */
 export function pressHint(
   view: HintView,
@@ -405,9 +496,29 @@ function pressHiddenSingle(view: HintView, action: Extract<HintAction, { kind: "
 }
 
 function patternCells(technique: string | null, indexes: readonly number[]): number[] {
+  if (technique === "swordfish") return swordfishPattern(indexes);
   const group = technique ? GROUP_SIZE[technique] : undefined;
   if (!group) return indexes.slice();
   return indexes.slice(0, group);
+}
+
+/** Swordfish pattern length varies, so L2/L3 repeat those cells and leave the house once. */
+function swordfishPattern(indexes: readonly number[]): number[] {
+  const seen = new Set<number>();
+  const duplicated = new Set<number>();
+  for (const cell of indexes) {
+    if (seen.has(cell)) duplicated.add(cell);
+    seen.add(cell);
+  }
+  if (duplicated.size === 0) return [...seen];
+  const pattern: number[] = [];
+  const taken = new Set<number>();
+  for (const cell of indexes) {
+    if (!duplicated.has(cell) || taken.has(cell)) continue;
+    taken.add(cell);
+    pattern.push(cell);
+  }
+  return pattern;
 }
 
 function withExtra(pattern: readonly number[], extra: readonly number[]): number[] {
@@ -436,19 +547,78 @@ function pressClear4(view: HintView, action: Extract<HintAction, { kind: "clear"
   if (view.step === 1) {
     return idle({
       step: 2,
-      indexes: houseViewIndexes(pattern, action.unit),
+      indexes: lockedIndexes(view.technique, pattern, action.unit),
       technique: view.technique,
       action,
-      note: hintClearLockedText(view.technique ?? "", action.keep, action.unit),
+      note: hintClearLockedText(view.technique ?? "", action.keep, action.unit, action.digits),
     });
   }
   return idle({
     step: 3,
-    indexes: withExtra(pattern, action.indexes),
+    indexes: revealIndexes(view.technique, pattern, action.indexes),
     technique: view.technique,
     action,
-    note: hintClearReveal(view.technique ?? "", action.digits, action.keep),
+    note: hintClearReveal(view.technique ?? "", action.digits, action.keep, action.unit, sharedLine(pattern)),
   });
+}
+
+function sharedLine(cells: readonly number[]): "row" | "col" {
+  if (cells.length === 0) return "row";
+  const row = rowOf(cells[0] ?? 0);
+  return cells.every((cell) => rowOf(cell) === row) ? "row" : "col";
+}
+
+function dedupe(cells: readonly number[]): number[] {
+  const indexes: number[] = [];
+  for (const cell of cells) if (!indexes.includes(cell)) indexes.push(cell);
+  return indexes;
+}
+
+function cellsAlong(indexes: readonly number[], kind: "row" | "col"): number[] {
+  const ids: number[] = [];
+  for (const cell of indexes) {
+    const id = kind === "row" ? rowOf(cell) : colOf(cell);
+    if (!ids.includes(id)) ids.push(id);
+  }
+  const out: number[] = [];
+  for (const id of ids) {
+    for (let offset = 0; offset < 9; offset++) out.push(kind === "row" ? id * 9 + offset : offset * 9 + id);
+  }
+  return out;
+}
+
+function fishHouse(pattern: readonly number[]): number[] {
+  return dedupe([...cellsAlong(pattern, "row"), ...cellsAlong(pattern, "col")]);
+}
+
+function pointingHouse(pattern: readonly number[], unit: UnitKind): number[] {
+  const anchor = pattern[0];
+  if (anchor === undefined) return [];
+  if (unit === "box") return dedupe([...unitCells(anchor, "box"), ...unitCells(anchor, sharedLine(pattern))]);
+  return dedupe([...unitCells(anchor, unit), ...unitCells(anchor, "box")]);
+}
+
+function markPattern(pattern: readonly number[], extra: readonly number[], duplicate: boolean): number[] {
+  const indexes = pattern.slice();
+  if (duplicate) for (const cell of pattern) indexes.push(cell);
+  for (const cell of extra) if (!indexes.includes(cell)) indexes.push(cell);
+  return indexes;
+}
+
+function lockedIndexes(technique: string | null, pattern: readonly number[], unit: UnitKind): number[] {
+  if (technique === "y_wing") return pattern.slice();
+  if (technique === "x_wing" || technique === "swordfish") {
+    return markPattern(pattern, fishHouse(pattern), technique === "swordfish");
+  }
+  if (technique === "pointing_pairs" || technique === "pointing_triples") {
+    return markPattern(pattern, pointingHouse(pattern, unit), false);
+  }
+  return houseViewIndexes(pattern, unit);
+}
+
+function revealIndexes(technique: string | null, pattern: readonly number[], clearIndexes: readonly number[]): number[] {
+  if (technique === "swordfish") return markPattern(pattern, clearIndexes, true);
+  return withExtra(pattern, clearIndexes);
 }
 
 const GROUP_SIZE: Record<string, number> = {
@@ -456,6 +626,10 @@ const GROUP_SIZE: Record<string, number> = {
   hidden_pairs: 2,
   obvious_triples: 3,
   hidden_triples: 3,
+  pointing_pairs: 2,
+  pointing_triples: 3,
+  x_wing: 4,
+  y_wing: 3,
 };
 
 const HIDDEN_CLEAR = new Set(["hidden_pairs", "hidden_triples"]);
@@ -464,8 +638,10 @@ const HIDDEN_CLEAR = new Set(["hidden_pairs", "hidden_triples"]);
  * Classes for one cell in the current hint.
  * Hidden Singles beat 2 paints the whole house. Beginner and obvious-single
  * beat 2 mark evidence beside the target.
- * #6/#7/#9/#10 L2 paints the house and the pattern. L3 keeps the pattern and
- * marks the cells whose notes will be cleared. Filled cells never get evidence.
+ * #6/#7/#9/#10 and #11–#15 L2 paints the house and the pattern. L3 keeps the
+ * pattern and marks the cells whose notes will be cleared. Filled cells never
+ * get evidence. Swordfish repeats its pattern cells so the variable fish can
+ * be told apart from the base and cover lines.
  */
 export function hintCellClasses(
   technique: string | null,
@@ -486,6 +662,16 @@ export function hintCellClasses(
     const classes = ["hint-house"];
     if (index === indexes[0]) classes.push("hint");
     else if (value === 0) classes.push("hint-evidence");
+    return classes;
+  }
+  if (technique === "swordfish" && (step === 2 || step === 3)) {
+    let times = 0;
+    for (const cell of indexes) if (cell === index) times += 1;
+    const isPattern = times >= 2;
+    if (step === 2) return isPattern ? ["hint-house", "hint"] : ["hint-house"];
+    const classes: string[] = [];
+    if (isPattern) classes.push("hint-house", "hint");
+    if (!isPattern && value === 0) classes.push("hint-evidence");
     return classes;
   }
   const group = technique ? GROUP_SIZE[technique] : undefined;
