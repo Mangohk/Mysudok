@@ -118,6 +118,11 @@ const STATUS_TECHNIQUE_NAMES = [
   "Hidden Singles",
   "Hidden Pairs",
   "Hidden Triples",
+  "Pointing Pairs",
+  "Pointing Triples",
+  "X-Wing",
+  "Y-Wing",
+  "Swordfish",
 ] as const;
 
 function statusTextHtml(text: string): string {

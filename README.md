@@ -46,7 +46,7 @@ npm run preview
 
 1. Home: choose **初級**, **中級**, or **高級**. Each button has a short description and `data-difficulty`. The app shows「正在出題…」while it searches. **練習技巧**, beside those three, opens English Title Case technique names. Picking one deals a puzzle from the static bank whose `hardest` is that technique (`public/bank-by-hardest.jsonl`, served at `/Mysudok/bank-by-hardest.jsonl`). Notes and Obvious Singles are not in the list. Each open technique shows how many bank puzzles it has, as `nn/100`. An empty pool shows「暫缺」and does not start a game. Practice does not call `generate`. **新局** draws the same technique again, preferring a different bank id, and morphs it again. **返回** from a practice game goes back to that list.
 2. Board, digit first: tap **1–9** to arm that digit (nothing is written yet). Cells that already show it are highlighted in beige. Tap an empty cell to fill it, or, in **筆記**, to toggle that candidate. Tap the same digit again to disarm it. Tap a filled cell you wrote to erase it. Givens cannot be edited. After a fill, the digit stays armed so you can keep placing it, and that same digit is cleared from pencil notes in the same row, column, and box. **上一步** undoes that fill and those note changes together. **填滿候選**, in the **⋯** menu, writes every legal candidate into the empty cells as pencil notes. That rewrite is one undo step, and the status line says「已填合法候選 · 可上一步」. Each digit button shows how many of that digit are still missing (`9 −` the number already on the board). A digit turns green when it sits in all nine solution cells and none of those cells conflict. The header shows「仲剩 N 格」, the empty cells that were not givens, and labels the puzzle ceiling as **最高技巧** above the technique name. While the board is unfinished and no hint is open, the status line is only「先點數字，再點格子。」. **新局** deals another puzzle. **重開** clears your fills on this puzzle. **返回** goes back to the difficulty choice.
-3. **提示** scans local techniques #1 → #3, then the Notes gate, then #5 → #10. It does not use openzeloku `nextHint`. Names in the header and in hints are Title Case English. Reason sentences stay Cantonese. Hints for #11–#15 are not shown.
+3. **提示** scans local techniques #1 → #3, then the Notes gate, then #5 → #10, then #11 → #15. It does not use openzeloku `nextHint`. Names in the header and in hints are Title Case English. Reason sentences stay Cantonese. #11–#15 are **Pointing Pairs**, **Pointing Triples**, **X-Wing**, **Y-Wing**, and **Swordfish**.
 
    **Last Free Cell**, **Last Remaining Cell**, and **Last Possible Number** are three presses. The first highlights the cell and the reason, with no digit. **Last Free Cell** then says「填入 〔n〕。」. **Last Remaining Cell** says「〔n〕喺呢行／列／宮只剩這一格。」 and paints the whole house plus the cells that already show that digit. **Last Possible Number** says「呢行、列、宮合埋只剩〔n〕。」 and paints the cell plus the digits already used in its row, column, and box. The button is then **填入**. The third press writes through the normal fill path (peer notes clear, one undo step) and leaves the hint. The hint status names the technique being taught. It does not reuse the **最高技巧** label.
 
@@ -56,7 +56,9 @@ npm run preview
 
    **Obvious Pairs**, **Obvious Triples**, **Hidden Pairs**, and **Hidden Triples** are four presses and do not fill a digit. The first names the technique and the reason, with no digits, and marks only the pair or triple. The button stays **提示**. The second names the locked digits and the house (行／列／宮), paints that whole house, and keeps a frame on the pattern cells. Filled cells in the house are not marked as evidence. The button is **再提示**. The third says which candidates to delete or keep and marks the cells that will be cleared. The button is **清候選**, not **填入**. The fourth clears those pencil notes in one undo step and leaves the hint. The status line says「已清候選 · 可上一步」.
 
-   If nothing in #1–#10 applies, the status line says「解唔落。」. Arming a digit, undoing, filling a cell, **填滿候選**, **新局**, or **重開** leaves the hint.
+   **Pointing Pairs**, **Pointing Triples**, **X-Wing**, **Y-Wing**, and **Swordfish** use that same four-press clear. They never fill a digit. Box-line reduction is taught as Pointing Pairs or Pointing Triples: box → line first, then line → box, with copy for that direction. The last button is **清候選**.
+
+   If nothing in #1–#15 applies, the status line says「解唔落。」. Arming a digit, undoing, filling a cell, **填滿候選**, **新局**, or **重開** leaves the hint.
 4. **⋯** opens one list: **填滿候選**, then **檢查錯格**. **檢查錯格** asks first, then marks player fills that disagree with the solution with an orange striped fill. That state is separate from the beige highlight on cells that already show the armed digit. It does not change the board. Editing a cell, **上一步**, **新局**, or **重開** clears those marks.
 5. A duplicate in a row, column, or box turns those cells light red. A finished board that matches the solution shows「完成」and **最高技巧** with the puzzle’s technique name. The「先點數字，再點格子。」line is not shown after the puzzle is complete.
 
@@ -119,7 +121,7 @@ The practice bank is a static JSONL asset (1300 puzzles, 100 for each open techn
 
 中級: `maxTechnique` is one of #5–#10. The solve used an intermediate technique and did not need #11+.
 
-高級: the solve path includes at least one of #11–#15. Hint UI for those steps is out of scope. Box-line reduction is applied and counted as Pointing Pairs or Pointing Triples.
+高級: the solve path includes at least one of #11–#15. The hint button teaches those clears after #1–#10: Pointing Pairs and Pointing Triples (box → line, then line → box claiming under the same names), X-Wing, Y-Wing, and Swordfish. Box-line reduction is applied and counted as Pointing Pairs or Pointing Triples.
 
 Anything still unsolved after Swordfish is rejected.
 
@@ -133,4 +135,4 @@ Puzzle engine: [openzeloku](https://github.com/mr-girff/openzeloku) by Zeloku, M
 
 ## Out of scope
 
-Accounts, saved progress, skill trees, exams, any server, and hint UI for techniques #11–#15.
+Accounts, saved progress, skill trees, exams, and any server.

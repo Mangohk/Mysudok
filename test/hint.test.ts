@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { legalCandidateMask } from "../src/board-input.ts";
+import { filterByHardest, parseBank } from "../src/engine/bank.ts";
 import {
   HINT_NOTES,
   HINT_STUCK,
@@ -23,6 +25,7 @@ import {
   type HintView,
 } from "../src/engine/hint.ts";
 import { scanOrderFromPuzzle } from "../src/engine/scan-order.ts";
+import { snapshotBeforeTechnique, type AppliedTechnique } from "../src/engine/techniques.ts";
 import {
   findHiddenSet,
   findLastFreeCell,
@@ -494,4 +497,346 @@ test("the same givens always scan to the same hint, and equal hits are not stuck
   const stable = findHint(values, stableNotes, givens);
   assert.equal(stable?.indexes[0], fromGivens.find((cell) => hits.includes(cell)));
   assert.deepEqual(findHint(values, stableNotes, givens)?.indexes, stable?.indexes);
+});
+
+const ALL_CANDIDATES = 0x3fe;
+const BOX0 = [0, 1, 2, 9, 10, 11, 18, 19, 20];
+const HINT_CLASSES = new Set(["hint", "hint-house", "hint-evidence"]);
+const ADVANCED = ["pointing_pairs", "pointing_triples", "x_wing", "y_wing", "swordfish"];
+
+function quietBoard(): { values: number[]; notes: number[] } {
+  return { values: Array<number>(81).fill(0), notes: Array<number>(81).fill(ALL_CANDIDATES) };
+}
+
+function wipe(notes: number[], indexes: readonly number[], digit: number): void {
+  const bit = 1 << digit;
+  for (const index of indexes) notes[index] &= ~bit;
+}
+
+function onlyDigits(notes: number[], index: number, digits: readonly number[]): void {
+  let mask = 0;
+  for (const digit of digits) mask |= 1 << digit;
+  notes[index] = mask;
+}
+
+function classNames(technique: string, step: number, indexes: readonly number[], values: readonly number[], index: number): string[] {
+  return hintCellClasses(technique, step, indexes, index, values[index] ?? 0);
+}
+
+function assertOnlyHintClasses(technique: string, step: number, indexes: readonly number[], values: readonly number[]): void {
+  for (let index = 0; index < 81; index++) {
+    for (const name of classNames(technique, step, indexes, values, index)) {
+      assert.equal(HINT_CLASSES.has(name), true);
+    }
+    if ((values[index] ?? 0) !== 0) {
+      assert.equal(classNames(technique, step, indexes, values, index).includes("hint-evidence"), false);
+    }
+  }
+}
+
+function evidenceIndexes(technique: string, step: number, indexes: readonly number[], values: readonly number[]): number[] {
+  const found: number[] = [];
+  for (let index = 0; index < 81; index++) {
+    if (classNames(technique, step, indexes, values, index).includes("hint-evidence")) found.push(index);
+  }
+  return found;
+}
+
+test("#11–#15 stay on the clear pipeline and never offer 填入", () => {
+  for (const id of ADVANCED) {
+    for (let step = 0; step <= 4; step++) assert.notEqual(hintButtonLabel(step, id), "填入");
+    assert.equal(hintButtonLabel(1, id), "提示");
+    assert.equal(hintButtonLabel(2, id), "再提示");
+    assert.equal(hintButtonLabel(3, id), "清候選");
+  }
+  assert.equal(
+    hintClearReveal("pointing_pairs", [4], [4], "box", "col"),
+    "呢〔列〕其餘格刪走 〔4〕。",
+  );
+  assert.equal(hintClearReveal("pointing_pairs", [4], [4], "row"), "呢〔宮〕其餘格刪走 〔4〕。");
+  assert.equal(
+    hintClearLockedText("pointing_pairs", [4], "col"),
+    "〔4〕喺呢〔列〕只可以落喺呢兩格（兩格同宮）。",
+  );
+  assert.equal(
+    hintClearLockedText("x_wing", [6], "col"),
+    "〔6〕喺呢兩〔列〕只得呢四格，一定佔對角鎖定。",
+  );
+  assert.equal(
+    hintClearReveal("swordfish", [7], [7], "col"),
+    "呢三〔行〕其餘格刪走 〔7〕。",
+  );
+});
+
+test("#11 Pointing Pairs teaches box → line, then clears on the fourth press", () => {
+  const { values, notes } = quietBoard();
+  wipe(notes, BOX0.filter((index) => index !== 0 && index !== 1), 1);
+  assert.equal(findHint(values)?.technique, "notes");
+  const singled = notes.slice();
+  singled[40] = 1 << 4;
+  assert.equal(findHint(values, singled)?.technique, "obvious_singles");
+
+  const first = pressHint(emptyHintView(), values, notes);
+  assert.equal(first.write, null);
+  assert.equal(first.clearNotes, null);
+  assert.equal(first.view.technique, "pointing_pairs");
+  assert.equal(first.view.action?.kind, "clear");
+  assert.equal(first.view.note, "呢幾格可用〔Pointing Pairs〕：〔同一宮兩格候選對齊一行／列〕。");
+  assert.equal(first.view.note?.includes("〔1〕"), false);
+  assert.deepEqual(first.view.indexes, [0, 1]);
+  assert.deepEqual(classNames("pointing_pairs", 1, first.view.indexes, values, 0), ["hint"]);
+  assert.deepEqual(classNames("pointing_pairs", 1, first.view.indexes, values, 3), []);
+  assert.equal(evidenceIndexes("pointing_pairs", 1, first.view.indexes, values).length, 0);
+
+  const second = pressHint(first.view, values, notes);
+  assert.equal(second.clearNotes, null);
+  assert.equal(second.view.step, 2);
+  assert.equal(second.view.note, "〔1〕喺呢〔宮〕只可以落喺呢兩格（兩格同行／列）。");
+  assert.equal(hintButtonLabel(2, "pointing_pairs"), "再提示");
+  assert.deepEqual(classNames("pointing_pairs", 2, second.view.indexes, values, 0), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("pointing_pairs", 2, second.view.indexes, values, 2), ["hint-house"]);
+  assert.deepEqual(classNames("pointing_pairs", 2, second.view.indexes, values, 3), ["hint-house"]);
+  assert.equal(evidenceIndexes("pointing_pairs", 2, second.view.indexes, values).length, 0);
+
+  const third = pressHint(second.view, values, notes);
+  assert.equal(third.clearNotes, null);
+  assert.equal(third.view.step, 3);
+  assert.equal(third.view.note, "呢〔行〕其餘格刪走 〔1〕。");
+  assert.equal(hintButtonLabel(3, "pointing_pairs"), "清候選");
+  assert.deepEqual(classNames("pointing_pairs", 3, third.view.indexes, values, 0), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("pointing_pairs", 3, third.view.indexes, values, 3), ["hint-evidence"]);
+  assert.equal(third.view.indexes.includes(2), false);
+
+  const cleared = pressHint(third.view, values, notes);
+  assert.equal(cleared.write, null);
+  assert.equal(cleared.fillCandidates, false);
+  assert.deepEqual(cleared.clearNotes, { indexes: [3, 4, 5, 6, 7, 8], digits: [1] });
+  assert.equal(cleared.view.step, 0);
+  assert.equal(cleared.view.technique, null);
+});
+
+test("#11 claiming teaches line → box under the Pointing Pairs name", () => {
+  const { values, notes } = quietBoard();
+  wipe(notes, [2, 3, 4, 5, 6, 7, 8], 1);
+  const first = pressHint(emptyHintView(), values, notes);
+  assert.equal(first.view.technique, "pointing_pairs");
+  assert.equal(first.view.action?.kind, "clear");
+  assert.equal(first.view.note, "呢幾格可用〔Pointing Pairs〕：〔同一行／列兩格候選對齊一宮〕。");
+  assert.equal(first.view.note?.includes("〔1〕"), false);
+  assert.equal(first.view.note?.includes("同一宮兩格"), false);
+  assert.deepEqual(first.view.indexes, [0, 1]);
+
+  const second = pressHint(first.view, values, notes);
+  assert.equal(second.view.note, "〔1〕喺呢〔行〕只可以落喺呢兩格（兩格同宮）。");
+  assert.deepEqual(classNames("pointing_pairs", 2, second.view.indexes, values, 0), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("pointing_pairs", 2, second.view.indexes, values, 2), ["hint-house"]);
+  assert.deepEqual(classNames("pointing_pairs", 2, second.view.indexes, values, 9), ["hint-house"]);
+  assert.equal(evidenceIndexes("pointing_pairs", 2, second.view.indexes, values).length, 0);
+
+  const third = pressHint(second.view, values, notes);
+  assert.equal(third.view.note, "呢〔宮〕其餘格刪走 〔1〕。");
+  assert.equal(hintButtonLabel(3, "pointing_pairs"), "清候選");
+  assert.deepEqual(classNames("pointing_pairs", 3, third.view.indexes, values, 9), ["hint-evidence"]);
+  assert.equal(third.view.indexes.includes(2), false);
+  const cleared = pressHint(third.view, values, notes);
+  assert.equal(cleared.write, null);
+  assert.deepEqual(cleared.clearNotes?.digits, [1]);
+  assert.deepEqual(cleared.clearNotes?.indexes, [9, 10, 11, 18, 19, 20]);
+});
+
+test("#12 Pointing Triples and its claiming form clear on the fourth press", () => {
+  const pointing = quietBoard();
+  wipe(pointing.notes, BOX0.filter((index) => index > 2), 2);
+  const first = pressHint(emptyHintView(), pointing.values, pointing.notes);
+  assert.equal(first.view.technique, "pointing_triples");
+  assert.equal(first.view.note, "呢幾格可用〔Pointing Triples〕：〔同一宮三格候選對齊一行／列〕。");
+  assert.equal(first.view.note?.includes("〔2〕"), false);
+  assert.deepEqual(first.view.indexes, [0, 1, 2]);
+  const second = pressHint(first.view, pointing.values, pointing.notes);
+  assert.equal(second.view.note, "〔2〕喺呢〔宮〕只可以落喺呢三格（三格同行／列）。");
+  assert.deepEqual(classNames("pointing_triples", 2, second.view.indexes, pointing.values, 0), ["hint-house", "hint"]);
+  assert.equal(evidenceIndexes("pointing_triples", 2, second.view.indexes, pointing.values).length, 0);
+  const third = pressHint(second.view, pointing.values, pointing.notes);
+  assert.equal(third.view.note, "呢〔行〕其餘格刪走 〔2〕。");
+  assert.deepEqual(classNames("pointing_triples", 3, third.view.indexes, pointing.values, 3), ["hint-evidence"]);
+  const cleared = pressHint(third.view, pointing.values, pointing.notes);
+  assert.equal(cleared.write, null);
+  assert.deepEqual(cleared.clearNotes?.digits, [2]);
+  assert.equal(cleared.clearNotes?.indexes.includes(0), false);
+  assert.equal(cleared.clearNotes?.indexes.includes(3), true);
+
+  const claiming = quietBoard();
+  for (let row = 3; row < 9; row++) wipe(claiming.notes, [row * 9], 3);
+  const claim = pressHint(emptyHintView(), claiming.values, claiming.notes);
+  assert.equal(claim.view.technique, "pointing_triples");
+  assert.equal(claim.view.note, "呢幾格可用〔Pointing Triples〕：〔同一行／列三格候選對齊一宮〕。");
+  assert.deepEqual(claim.view.indexes, [0, 9, 18]);
+  const claimLocked = pressHint(claim.view, claiming.values, claiming.notes);
+  assert.equal(claimLocked.view.note, "〔3〕喺呢〔列〕只可以落喺呢三格（三格同宮）。");
+  const claimList = pressHint(claimLocked.view, claiming.values, claiming.notes);
+  assert.equal(claimList.view.note, "呢〔宮〕其餘格刪走 〔3〕。");
+  assert.equal(hintButtonLabel(claimList.view.step, "pointing_triples"), "清候選");
+  const claimClear = pressHint(claimList.view, claiming.values, claiming.notes);
+  assert.equal(claimClear.write, null);
+  assert.deepEqual(claimClear.clearNotes?.digits, [3]);
+  assert.deepEqual(claimClear.clearNotes?.indexes, [1, 2, 10, 11, 19, 20]);
+});
+
+test("#13 X-Wing marks the four corners, then clears the cover", () => {
+  const { values, notes } = quietBoard();
+  for (const row of [0, 3]) {
+    for (let col = 0; col < 9; col++) if (col !== 0 && col !== 5) wipe(notes, [row * 9 + col], 5);
+  }
+  const first = pressHint(emptyHintView(), values, notes);
+  assert.equal(first.view.technique, "x_wing");
+  assert.equal(first.view.action?.kind, "clear");
+  assert.equal(first.view.note, "呢幾格可用〔X-Wing〕：〔兩行／列嘅候選對齊成 X〕。");
+  assert.equal(first.view.note?.includes("〔5〕"), false);
+  assert.deepEqual(first.view.indexes, [0, 5, 27, 32]);
+  assert.deepEqual(classNames("x_wing", 1, first.view.indexes, values, 0), ["hint"]);
+  const second = pressHint(first.view, values, notes);
+  assert.equal(second.clearNotes, null);
+  assert.equal(second.view.note, "〔5〕喺呢兩〔行〕只得呢四格，一定佔對角鎖定。");
+  assert.deepEqual(classNames("x_wing", 2, second.view.indexes, values, 0), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("x_wing", 2, second.view.indexes, values, 1), ["hint-house"]);
+  assert.deepEqual(classNames("x_wing", 2, second.view.indexes, values, 9), ["hint-house"]);
+  assert.equal(evidenceIndexes("x_wing", 2, second.view.indexes, values).length, 0);
+  const third = pressHint(second.view, values, notes);
+  assert.equal(third.view.note, "呢兩〔列〕其餘格刪走 〔5〕。");
+  assert.equal(hintButtonLabel(3, "x_wing"), "清候選");
+  assert.deepEqual(classNames("x_wing", 3, third.view.indexes, values, 0), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("x_wing", 3, third.view.indexes, values, 9), ["hint-evidence"]);
+  assert.equal(classNames("x_wing", 3, third.view.indexes, values, 0).includes("hint-evidence"), false);
+  const cleared = pressHint(third.view, values, notes);
+  assert.equal(cleared.write, null);
+  assert.deepEqual(cleared.clearNotes?.digits, [5]);
+  assert.equal(cleared.clearNotes?.indexes.includes(0), false);
+  assert.equal(cleared.clearNotes?.indexes.includes(9), true);
+  assertOnlyHintClasses("x_wing", 2, second.view.indexes, values);
+  assertOnlyHintClasses("x_wing", 3, third.view.indexes, values);
+});
+
+test("#14 Y-Wing teaches the pivot and clears the shared candidate", () => {
+  const { values, notes } = quietBoard();
+  onlyDigits(notes, 0, [1, 2]);
+  onlyDigits(notes, 5, [1, 3]);
+  onlyDigits(notes, 45, [2, 3]);
+  const first = pressHint(emptyHintView(), values, notes);
+  assert.equal(first.view.technique, "y_wing");
+  assert.equal(first.view.action?.kind, "clear");
+  assert.equal(first.view.note, "呢幾格可用〔Y-Wing〕：〔一格樞紐加兩格夾擊〕。");
+  assert.equal(first.view.note?.includes("〔1〕"), false);
+  assert.equal(first.view.note?.includes("〔3〕"), false);
+  assert.deepEqual(first.view.indexes, [0, 5, 45]);
+  const second = pressHint(first.view, values, notes);
+  assert.equal(second.clearNotes, null);
+  assert.equal(second.view.note, "樞紐 〔1〕、〔2〕；夾擊共有 〔3〕——無論邊邊真，相交位都唔可以留 〔3〕。");
+  assert.deepEqual(second.view.indexes, [0, 5, 45]);
+  assert.deepEqual(classNames("y_wing", 2, second.view.indexes, values, 0), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("y_wing", 2, second.view.indexes, values, 5), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("y_wing", 2, second.view.indexes, values, 45), ["hint-house", "hint"]);
+  assert.equal(evidenceIndexes("y_wing", 2, second.view.indexes, values).length, 0);
+  const third = pressHint(second.view, values, notes);
+  assert.equal(third.view.note, "相交格刪走 〔3〕。");
+  assert.equal(hintButtonLabel(3, "y_wing"), "清候選");
+  assert.deepEqual(classNames("y_wing", 3, third.view.indexes, values, 50), ["hint-evidence"]);
+  assert.equal(classNames("y_wing", 3, third.view.indexes, values, 0).includes("hint-evidence"), false);
+  const cleared = pressHint(third.view, values, notes);
+  assert.equal(cleared.write, null);
+  assert.deepEqual(cleared.clearNotes, { indexes: [50], digits: [3] });
+});
+
+test("#15 Swordfish marks the fish, then clears the cover", () => {
+  const { values, notes } = quietBoard();
+  for (const row of [0, 3, 6]) {
+    for (let col = 0; col < 9; col++) if (![0, 4, 8].includes(col)) wipe(notes, [row * 9 + col], 7);
+  }
+  const first = pressHint(emptyHintView(), values, notes);
+  assert.equal(first.view.technique, "swordfish");
+  assert.equal(first.view.action?.kind, "clear");
+  assert.equal(first.view.note, "呢幾格可用〔Swordfish〕：〔三行／列嘅候選對齊成魚〕。");
+  assert.equal(first.view.note?.includes("〔7〕"), false);
+  assert.equal(first.view.indexes.length, 9);
+  assert.equal(first.view.indexes.includes(0), true);
+  const second = pressHint(first.view, values, notes);
+  assert.equal(second.clearNotes, null);
+  assert.equal(second.view.note, "〔7〕喺呢三〔行〕對齊三個〔列〕，無論點擺都會蓋住。");
+  assert.deepEqual(classNames("swordfish", 2, second.view.indexes, values, 0), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("swordfish", 2, second.view.indexes, values, 1), ["hint-house"]);
+  assert.equal(classNames("swordfish", 2, second.view.indexes, values, 1).includes("hint"), false);
+  assert.equal(evidenceIndexes("swordfish", 2, second.view.indexes, values).length, 0);
+  const third = pressHint(second.view, values, notes);
+  assert.equal(third.view.note, "呢三〔列〕其餘格刪走 〔7〕。");
+  assert.equal(hintButtonLabel(3, "swordfish"), "清候選");
+  assert.deepEqual(classNames("swordfish", 3, third.view.indexes, values, 0), ["hint-house", "hint"]);
+  assert.deepEqual(classNames("swordfish", 3, third.view.indexes, values, 9), ["hint-evidence"]);
+  assert.equal(classNames("swordfish", 3, third.view.indexes, values, 0).includes("hint-evidence"), false);
+  const cleared = pressHint(third.view, values, notes);
+  assert.equal(cleared.write, null);
+  assert.deepEqual(cleared.clearNotes?.digits, [7]);
+  assert.equal(cleared.clearNotes?.indexes.includes(0), false);
+  assert.equal(cleared.clearNotes?.indexes.includes(9), true);
+  assertOnlyHintClasses("swordfish", 3, third.view.indexes, values);
+});
+
+test("解唔落 only after #1–#15 all miss, not while an advanced clear remains", () => {
+  const empty = Array<number>(81).fill(0);
+  const noted = fullNotes(empty);
+  assert.equal(findHint(empty, noted), null);
+  const stuck = pressHint(emptyHintView(), empty, noted);
+  assert.equal(stuck.view.note, HINT_STUCK);
+  assert.equal(stuck.write, null);
+  assert.equal(stuck.clearNotes, null);
+
+  const { values, notes } = quietBoard();
+  for (const row of [0, 3, 6]) {
+    for (let col = 0; col < 9; col++) if (![0, 4, 8].includes(col)) wipe(notes, [row * 9 + col], 7);
+  }
+  const hint = findHint(values, notes);
+  assert.equal(hint?.technique, "swordfish");
+  assert.notEqual(pressHint(emptyHintView(), values, notes).view.note, HINT_STUCK);
+});
+
+test("each advanced bank hardest reaches clearNotes from the notes at that step", () => {
+  const text = readFileSync(new URL("../public/bank-by-hardest.jsonl", import.meta.url), "utf8");
+  const entries = parseBank(text);
+  for (const id of ADVANCED) {
+    const pool = filterByHardest(entries, id);
+    assert.equal(pool.length > 0, true, id);
+    let taught = false;
+    for (const entry of pool) {
+      const givens = [...entry.givens].map((digit) => digit.charCodeAt(0) - 48);
+      const shot = snapshotBeforeTechnique(givens, id as AppliedTechnique);
+      if (!shot) continue;
+      const first = pressHint(emptyHintView(), shot.values, shot.candidates, givens);
+      assert.equal(first.view.technique, id);
+      assert.equal(first.view.action?.kind, "clear");
+      assert.equal(first.write, null);
+      assert.equal(first.view.note?.includes("填入"), false);
+      const digits = first.view.action?.kind === "clear" ? first.view.action.digits : [];
+      for (const digit of digits) assert.equal(first.view.note?.includes(`〔${digit}〕`), false);
+      assert.equal(evidenceIndexes(id, 1, first.view.indexes, shot.values).length, 0);
+      const second = pressHint(first.view, shot.values, shot.candidates, givens);
+      assert.equal(second.clearNotes, null);
+      assert.equal(second.view.step, 2);
+      assert.equal(evidenceIndexes(id, 2, second.view.indexes, shot.values).length, 0);
+      assertOnlyHintClasses(id, 2, second.view.indexes, shot.values);
+      for (const digit of digits) assert.equal(second.view.note?.includes(`〔${digit}〕`), true);
+      const third = pressHint(second.view, shot.values, shot.candidates, givens);
+      assert.equal(third.clearNotes, null);
+      assert.equal(hintButtonLabel(third.view.step, id), "清候選");
+      assert.equal(third.view.note?.includes("填入"), false);
+      assert.equal(evidenceIndexes(id, 3, third.view.indexes, shot.values).length > 0, true);
+      assertOnlyHintClasses(id, 3, third.view.indexes, shot.values);
+      const cleared = pressHint(third.view, shot.values, shot.candidates, givens);
+      assert.equal(cleared.write, null);
+      assert.ok(cleared.clearNotes);
+      assert.equal(cleared.clearNotes.indexes.length > 0, true);
+      assert.deepEqual(cleared.clearNotes.digits, digits);
+      assert.equal(cleared.view.step, 0);
+      taught = true;
+      break;
+    }
+    assert.equal(taught, true, id);
+  }
 });
