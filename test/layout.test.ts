@@ -4,6 +4,21 @@ import test from "node:test";
 
 const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
 
+test("narrow confirm keeps 確定 and 繼續 on one row", () => {
+  const narrow = css.split("@media").find((block) => {
+    const header = block.slice(0, block.indexOf("{"));
+    return /max-width:\s*640px/.test(header) && !/orientation:\s*landscape/.test(header);
+  });
+  assert.ok(narrow);
+  assert.match(ruleBody("\\.top-actions", narrow), /flex-basis:\s*100%/);
+  assert.match(ruleBody("\\.confirm-actions button", narrow), /font-size:\s*0\.875rem/);
+  assert.match(ruleBody("\\.confirm-actions button", narrow), /padding:\s*0\.28rem\s+0\.48rem/);
+  assert.doesNotMatch(narrow, /\.confirm-actions[^{]*\{[^}]*flex-direction:\s*column/);
+  const portrait = css.split("@media")[0] ?? "";
+  assert.match(ruleBody("\\.confirm-actions", portrait), /flex-flow:\s*row\s+nowrap/);
+  assert.match(ruleBody("\\.confirm-actions button", portrait), /white-space:\s*nowrap/);
+});
+
 test("landscape right rail turns on only for landscape and min-width 900px", () => {
   const queries = css.match(/@media[^{]+\{/g) ?? [];
   const landscape = queries.filter((query) => /orientation:\s*landscape/.test(query));

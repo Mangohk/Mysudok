@@ -560,7 +560,7 @@ test("#11–#15 stay on the clear pipeline and never offer 填入", () => {
   );
   assert.equal(
     hintClearLockedText("x_wing", [6], "col"),
-    "〔6〕喺呢兩〔列〕只得呢四格，一定佔對角鎖定。",
+    "〔6〕喺呢兩〔列〕只得呢四格，四個角位鎖定呢個數字。",
   );
   assert.equal(
     hintClearReveal("swordfish", [7], [7], "col"),
@@ -696,7 +696,8 @@ test("#13 X-Wing marks the four corners, then clears the cover", () => {
   assert.deepEqual(classNames("x_wing", 1, first.view.indexes, values, 0), ["hint"]);
   const second = pressHint(first.view, values, notes);
   assert.equal(second.clearNotes, null);
-  assert.equal(second.view.note, "〔5〕喺呢兩〔行〕只得呢四格，一定佔對角鎖定。");
+  assert.equal(second.view.note, "〔5〕喺呢兩〔行〕只得呢四格，四個角位鎖定呢個數字。");
+  assert.equal(second.view.note?.includes("對角鎖定"), false);
   assert.deepEqual(classNames("x_wing", 2, second.view.indexes, values, 0), ["hint-house", "hint"]);
   assert.deepEqual(classNames("x_wing", 2, second.view.indexes, values, 1), ["hint-house"]);
   assert.deepEqual(classNames("x_wing", 2, second.view.indexes, values, 9), ["hint-house"]);

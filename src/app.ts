@@ -66,7 +66,7 @@ export const DIGIT_FIRST_COACH = "先點數字，再點格子。";
 export const HOME_BLURB: Record<Difficulty, string> = {
   初級: "最後一格、剩餘格、唯一數字",
   中級: "筆記之後嘅單一、數對、三數組",
-  高級: "區塊指向、X-Wing",
+  高級: "Pointing Pairs、X-Wing",
   專家: "Y-Wing、Swordfish",
 };
 
@@ -603,8 +603,10 @@ function playHtml(play: Play): string {
       ? ""
       : `<div class="confirm" role="alertdialog" aria-label="確認">
           <p>${confirmCopy(play.confirm)}</p>
-          <button type="button" data-action="confirm-yes">確定</button>
-          <button type="button" data-action="confirm-no">繼續</button>
+          <div class="confirm-actions">
+            <button type="button" data-action="confirm-yes">確定</button>
+            <button type="button" data-action="confirm-no">繼續</button>
+          </div>
         </div>`;
   const done = play.complete
     ? `<div class="done" role="dialog" aria-labelledby="done-title">

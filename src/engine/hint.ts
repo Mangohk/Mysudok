@@ -259,7 +259,7 @@ export function hintClearLockedText(
   }
   if (technique === "x_wing") {
     const base = unit === "col" ? "列" : "行";
-    return `〔${a}〕喺呢兩〔${base}〕只得呢四格，一定佔對角鎖定。`;
+    return `〔${a}〕喺呢兩〔${base}〕只得呢四格，四個角位鎖定呢個數字。`;
   }
   if (technique === "swordfish") {
     const base = unit === "col" ? "列" : "行";

@@ -9,6 +9,13 @@ test("home blurb names the three beginner techniques, including 唯一數字", (
   assert.match(HOME_BLURB.初級, /唯一數字/);
 });
 
+test("home advanced blurb names Pointing Pairs and X-Wing", () => {
+  assert.equal(HOME_BLURB.高級, "Pointing Pairs、X-Wing");
+  assert.equal(HOME_BLURB.高級.includes("區塊指向"), false);
+  assert.equal(HOME_BLURB.中級, "筆記之後嘅單一、數對、三數組");
+  assert.equal(HOME_BLURB.專家, "Y-Wing、Swordfish");
+});
+
 test("home skill reference is the locked #1–#10 sudoku.com table", () => {
   const expected: Array<[number, string, string]> = [
     [1, "Last free cell", "https://sudoku.com/sudoku-rules/last-free-cell/"],
@@ -90,9 +97,10 @@ test("top actions are 重開, 新局, 返回 and confirm anchors under them", ()
   assert.match(rail, /data-action="menu"/);
 
   assert.match(app, /role="alertdialog" aria-label="確認"/);
-  assert.match(app, /data-action="confirm-yes">確定</);
-  assert.match(app, /data-action="confirm-no">繼續</);
+  assert.match(app, /class="confirm-actions"[\s\S]*data-action="confirm-yes">確定<\/button>[\s\S]*data-action="confirm-no">繼續<\/button>/);
   assert.match(css, /\.top-actions > \.confirm\s*\{/);
+  assert.match(css, /\.confirm-actions\s*\{[^}]*flex-flow:\s*row\s+nowrap/);
+  assert.match(css, /\.confirm-actions button\s*\{[^}]*white-space:\s*nowrap/);
   assert.equal(css.includes(".play-rail > .confirm"), false);
   assert.equal(css.includes("position: fixed"), false);
 });
