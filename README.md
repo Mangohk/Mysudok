@@ -44,7 +44,7 @@ npm run preview
 
 ## Play
 
-1. Home: choose **初級**, **中級**, or **高級**. Each button has a short description and `data-difficulty`. The app shows「正在出題…」while it searches.
+1. Home: choose **初級**, **中級**, or **高級**. Each button has a short description and `data-difficulty`. The app shows「正在出題…」while it searches. **練習技巧**, beside those three, opens English Title Case technique names. Picking one deals a puzzle from the static bank whose `hardest` is that technique (`public/bank-by-hardest.jsonl`, served at `/Mysudok/bank-by-hardest.jsonl`). Notes and Obvious Singles are not in the list. Each open technique shows how many bank puzzles it has, as `nn/100`. An empty pool shows「暫缺」and does not start a game. Practice does not call `generate`. **新局** draws the same technique again, preferring a different bank id, and morphs it again. **返回** from a practice game goes back to that list.
 2. Board, digit first: tap **1–9** to arm that digit (nothing is written yet). Cells that already show it are highlighted in beige. Tap an empty cell to fill it, or, in **筆記**, to toggle that candidate. Tap the same digit again to disarm it. Tap a filled cell you wrote to erase it. Givens cannot be edited. After a fill, the digit stays armed so you can keep placing it, and that same digit is cleared from pencil notes in the same row, column, and box. **上一步** undoes that fill and those note changes together. **填滿候選**, in the **⋯** menu, writes every legal candidate into the empty cells as pencil notes. That rewrite is one undo step, and the status line says「已填合法候選 · 可上一步」. Each digit button shows how many of that digit are still missing (`9 −` the number already on the board). A digit turns green when it sits in all nine solution cells and none of those cells conflict. The header shows「仲剩 N 格」, the empty cells that were not givens, and labels the puzzle ceiling as **最高技巧** above the technique name. While the board is unfinished and no hint is open, the status line is only「先點數字，再點格子。」. **新局** deals another puzzle. **重開** clears your fills on this puzzle. **返回** goes back to the difficulty choice.
 3. **提示** scans local techniques #1 → #3, then the Notes gate, then #5 → #10. It does not use openzeloku `nextHint`. Names in the header and in hints are Title Case English. Reason sentences stay Cantonese. Hints for #11–#15 are not shown.
 
@@ -87,8 +87,13 @@ Implementation: [`src/engine/generate.ts`](src/engine/generate.ts).
 4. 初級 keeps the puzzle only when every step is #1–#3. 中級 keeps it when the hardest step is #5–#10. 高級 keeps it when at least one step is #11–#15. An attempt may add or remove clues from that unique puzzle until the rating lands in the band.
 5. 初級 has a soft quota for Last Possible Number. The streak is kept in memory and in `localStorage` (`mysudok.beginnerNonLpnStreak`). After 3 consecutive 初級 puzzles whose `maxTechnique` is not `last_possible_number`, the next 初級 search carves toward exactly that technique (still scanning #1 → #2 → #3, with #2 digit → cell and #3 cell → digit). If that carve misses, any #1–#3 puzzle is accepted and the streak continues. A #3 result resets the streak. 中級 and 高級 are not part of this quota.
 6. Retry up to 40 seeds. If none match, generation throws and the UI says so.
+7. Every dealt puzzle — a generated 初級／中級／高級 grid, and a practice-bank draw — then passes through `applyDealMorph` in [`src/engine/morph.ts`](src/engine/morph.ts). The morph permutes digits 1–9, permutes the three bands and the rows inside each band, and permutes the three stacks and the columns inside each stack. It does not transpose or reflect. Givens and the solution share one map. `maxTechnique` stays the label from `generate` or from the bank `hardest` id. The morph is not written back into the bank, and the app does not analyze the grid again.
 
 Clue count is only a side effect of carving a grid. The accept/reject decision is the technique rating.
+
+### Technique practice
+
+The practice bank is a static JSONL asset (1300 puzzles, 100 for each open technique). The page fetches it from the Vite `base` (`/Mysudok/`). Runtime does not run Python and does not download puzzles from another origin. `parseBank` / `filterByHardest` / `drawEntry` live in [`src/engine/bank.ts`](src/engine/bank.ts). A bank row becomes the existing `Puzzle` (`givens` and `solution` as `number[][]`, `maxTechnique` = `hardest`, `unique: true`) only after the deal-time morph. The header shows the Title Case name via `techniqueTitle`.
 
 ### Technique map
 

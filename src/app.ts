@@ -15,6 +15,16 @@ import {
   wrongFillIndexes,
   type BoardInput,
 } from "./board-input";
+import {
+  drawEntry,
+  entryToPuzzle,
+  filterByHardest,
+  loadPracticeBank,
+  peekPracticeBank,
+  PRACTICE_TARGET,
+  practiceChoices,
+  type PracticeChoice,
+} from "./engine/bank";
 import { generate, type Difficulty, type Puzzle } from "./engine/generate";
 import {
   emptyHintView,
@@ -25,15 +35,28 @@ import {
   type HintAction,
   type HintView,
 } from "./engine/hint";
+import { applyDealMorph } from "./engine/morph";
+import { techniqueBand } from "./engine/techniques";
 
 type Phase =
   | { kind: "home" }
+  | { kind: "practice"; loading: boolean; choices: PracticeChoice[]; notice: string | null }
   | { kind: "loading"; difficulty: Difficulty }
   | { kind: "error"; difficulty: Difficulty; message: string }
   | { kind: "play"; play: Play };
 
+interface PracticeDeal {
+  techniqueId: string;
+  bankId: string;
+  poolCount: number;
+}
+
 interface Play extends BoardInput {
   difficulty: Difficulty;
+  mode: "difficulty" | "practice";
+  techniqueId: string | null;
+  bankId: string | null;
+  poolCount: number;
   puzzle: Puzzle;
   hintStep: HintView["step"];
   hintIndexes: number[];
@@ -63,6 +86,18 @@ export const HOME_BLURB: Record<Difficulty, string> = {
   中級: "筆記之後嘅單一、數對、三數組",
   高級: "區塊指向、X-Wing、魚形",
 };
+
+/** Home control beside the three difficulties. Opens the technique picker. */
+export const PRACTICE_ENTRY_LABEL = "練習技巧";
+
+export const PRACTICE_BLURB = "指定一招，從題庫開一題";
+
+/** Empty practice pool. The game does not start. */
+export const PRACTICE_EMPTY_LABEL = "暫缺";
+
+export function practiceProgressLabel(count: number, target = PRACTICE_TARGET): string {
+  return `${count}/${target}`;
+}
 
 /** Status under the board. The coach line is only for an unfinished, idle game. */
 export function playStatusMarkup(complete: boolean, banner: string | null): string {
@@ -150,11 +185,15 @@ function applyHintView(play: Play, view: HintView): void {
   play.hintNote = view.note;
 }
 
-function freshPlay(difficulty: Difficulty, puzzle: Puzzle): Play {
+function freshPlay(difficulty: Difficulty, puzzle: Puzzle, practice?: PracticeDeal): Play {
   const board = createBoard(puzzle.givens.flat(), puzzle.solution.flat());
   return {
     ...board,
     difficulty,
+    mode: practice ? "practice" : "difficulty",
+    techniqueId: practice?.techniqueId ?? null,
+    bankId: practice?.bankId ?? null,
+    poolCount: practice?.poolCount ?? 0,
     puzzle,
     hintStep: 0,
     hintIndexes: [],
@@ -202,7 +241,7 @@ async function startGame(difficulty: Difficulty): Promise<void> {
   phase = { kind: "loading", difficulty };
   render();
   try {
-    const puzzle = await generate(difficulty);
+    const puzzle = applyDealMorph(await generate(difficulty));
     if (id !== requestId) return;
     phase = { kind: "play", play: freshPlay(difficulty, puzzle) };
   } catch (error) {
@@ -210,6 +249,83 @@ async function startGame(difficulty: Difficulty): Promise<void> {
     const message = error instanceof Error ? error.message : "出題失敗。";
     phase = { kind: "error", difficulty, message };
   }
+  render();
+}
+
+function showPractice(choices: PracticeChoice[], notice: string | null): void {
+  phase = { kind: "practice", loading: false, choices, notice };
+  render();
+}
+
+async function openPractice(): Promise<void> {
+  const id = ++requestId;
+  const cached = peekPracticeBank();
+  if (cached) {
+    showPractice(practiceChoices(cached), null);
+    return;
+  }
+  phase = { kind: "practice", loading: true, choices: [], notice: null };
+  render();
+  try {
+    const entries = await loadPracticeBank();
+    if (id !== requestId) return;
+    showPractice(practiceChoices(entries), null);
+  } catch {
+    if (id !== requestId) return;
+    showPractice(practiceChoices([]), PRACTICE_EMPTY_LABEL);
+  }
+}
+
+async function startPractice(techniqueId: string, avoidId?: string | null): Promise<void> {
+  const id = ++requestId;
+  const cached = peekPracticeBank();
+  if (!cached) {
+    phase = { kind: "practice", loading: true, choices: [], notice: null };
+    render();
+  }
+  try {
+    const entries = cached ?? (await loadPracticeBank());
+    if (id !== requestId) return;
+    const choices = practiceChoices(entries);
+    const choice = choices.find((item) => item.id === techniqueId);
+    const pool = choice ? filterByHardest(entries, choice.id) : [];
+    const entry = choice && !choice.empty ? drawEntry(pool, avoidId) : null;
+    if (!choice || choice.empty || !entry) {
+      showPractice(choices, PRACTICE_EMPTY_LABEL);
+      return;
+    }
+    const puzzle = applyDealMorph(entryToPuzzle(entry));
+    phase = {
+      kind: "play",
+      play: freshPlay(techniqueBand(choice.id), puzzle, {
+        techniqueId: choice.id,
+        bankId: entry.id,
+        poolCount: pool.length,
+      }),
+    };
+  } catch {
+    if (id !== requestId) return;
+    showPractice(practiceChoices([]), PRACTICE_EMPTY_LABEL);
+    return;
+  }
+  render();
+}
+
+function redraw(play: Play): void {
+  if (play.mode === "practice" && play.techniqueId) {
+    void startPractice(play.techniqueId, play.bankId);
+    return;
+  }
+  void startGame(play.difficulty);
+}
+
+function leavePlay(): void {
+  requestId++;
+  if (phase.kind === "play" && phase.play.mode === "practice") {
+    showPractice(practiceChoices(peekPracticeBank() ?? []), null);
+    return;
+  }
+  phase = { kind: "home" };
   render();
 }
 
@@ -226,6 +342,24 @@ function onClick(event: MouseEvent): void {
     if (difficulty === "初級" || difficulty === "中級" || difficulty === "高級") void startGame(difficulty);
     return;
   }
+  if (action === "practice") {
+    void openPractice();
+    return;
+  }
+  if (action === "practice-start") {
+    const technique = target.dataset.technique;
+    if (!technique) return;
+    if (phase.kind === "practice") {
+      const choice = phase.choices.find((item) => item.id === technique);
+      if (!choice || choice.empty) {
+        phase.notice = PRACTICE_EMPTY_LABEL;
+        render();
+        return;
+      }
+    }
+    void startPractice(technique);
+    return;
+  }
   if (action === "retry") {
     if (phase.kind === "error") void startGame(phase.difficulty);
     return;
@@ -234,6 +368,10 @@ function onClick(event: MouseEvent): void {
     if (phase.kind === "play" && dirty(phase.play) && !phase.play.complete) {
       phase.play.confirm = "back";
       render();
+      return;
+    }
+    if (phase.kind === "play") {
+      leavePlay();
       return;
     }
     requestId++;
@@ -248,7 +386,7 @@ function onClick(event: MouseEvent): void {
       render();
       return;
     }
-    void startGame(phase.play.difficulty);
+    redraw(phase.play);
     return;
   }
   if (action === "restart") {
@@ -270,14 +408,12 @@ function onClick(event: MouseEvent): void {
   if (action === "confirm-yes") {
     if (phase.kind !== "play") return;
     const choice = phase.play.confirm;
-    const difficulty = phase.play.difficulty;
-    phase.play.confirm = null;
+    const play = phase.play;
+    play.confirm = null;
     if (choice === "back") {
-      requestId++;
-      phase = { kind: "home" };
-      render();
+      leavePlay();
     } else if (choice === "new") {
-      void startGame(difficulty);
+      redraw(play);
     } else if (choice === "restart") {
       applyRestart(phase.play);
       render();
@@ -570,10 +706,13 @@ function playHtml(play: Play): string {
         </div>
       </div>`
     : "";
-  return `<section class="play">
+  const eyebrow = play.mode === "practice" ? "練習" : play.difficulty;
+  const progress =
+    play.mode === "practice" ? `<span class="pool-progress">${esc(practiceProgressLabel(play.poolCount))}</span>` : "";
+  return `<section class="play" data-mode="${play.mode}" data-technique="${esc(play.techniqueId ?? "")}" data-pool="${play.poolCount}">
     <header class="top">
       <div class="top-copy">
-        <p class="eyebrow">${esc(play.difficulty)}</p>
+        <p class="eyebrow">${esc(eyebrow)}${progress}</p>
         <p class="ceiling-kicker">${esc(CEILING_LABEL)}</p>
         <h1>${esc(label)}</h1>
         <p class="left">仲剩 ${emptyCellCount(play)} 格</p>
@@ -611,7 +750,7 @@ function playHtml(play: Play): string {
   </section>`;
 }
 
-function homeHtml(): string {
+export function homeHtml(): string {
   return `<section class="home">
     <header class="mast">
       <p class="brand">Mysudok</p>
@@ -631,9 +770,47 @@ function homeHtml(): string {
         <span class="kicker">高級</span>
         <span class="blurb">${esc(HOME_BLURB.高級)}</span>
       </button>
+      <button type="button" class="choice practice" data-action="practice">
+        <span class="kicker">${esc(PRACTICE_ENTRY_LABEL)}</span>
+        <span class="blurb">${esc(PRACTICE_BLURB)}</span>
+      </button>
     </div>
     ${skillReferenceMarkup()}
     <p class="credit">題目引擎 <a href="https://github.com/mr-girff/openzeloku">openzeloku</a>（MIT）</p>
+  </section>`;
+}
+
+export function practicePickerMarkup(choices: readonly PracticeChoice[], notice: string | null): string {
+  const items = choices
+    .map((choice) => {
+      const progress = choice.empty ? PRACTICE_EMPTY_LABEL : practiceProgressLabel(choice.count);
+      const disabled = choice.empty ? "disabled" : "";
+      const action = choice.empty ? "" : `data-action="practice-start" data-technique="${esc(choice.id)}"`;
+      const classes = choice.empty ? "technique empty" : "technique";
+      return `<li><button type="button" class="${classes}" ${action} ${disabled}><span class="tech-title">${esc(choice.title)}</span><span class="tech-progress">${esc(progress)}</span></button></li>`;
+    })
+    .join("");
+  const banner = notice ? `<p class="notice" role="status">${esc(notice)}</p>` : "";
+  return `<section class="home practice-pick" data-screen="practice">
+    <header class="mast">
+      <p class="brand">Mysudok</p>
+      <h1>${esc(PRACTICE_ENTRY_LABEL)}</h1>
+      <p class="lede">揀英文技名，直接開一題。</p>
+    </header>
+    ${banner}
+    <ul class="practice-list">${items}</ul>
+    <div class="practice-actions"><button type="button" data-action="back">返回</button></div>
+  </section>`;
+}
+
+export function practiceLoadingMarkup(): string {
+  return `<section class="home practice-pick" data-screen="practice" role="status" aria-live="polite" aria-busy="true">
+    <header class="mast">
+      <p class="brand">Mysudok</p>
+      <h1>${esc(PRACTICE_ENTRY_LABEL)}</h1>
+      <p class="lede">載入題庫…</p>
+    </header>
+    <div class="practice-actions"><button type="button" data-action="back">返回</button></div>
   </section>`;
 }
 
@@ -661,7 +838,9 @@ function render(): void {
   const root = appRoot.el;
   if (!root) return;
   if (phase.kind === "home") root.innerHTML = homeHtml();
-  else if (phase.kind === "loading") root.innerHTML = loadingHtml(phase.difficulty);
+  else if (phase.kind === "practice") {
+    root.innerHTML = phase.loading ? practiceLoadingMarkup() : practicePickerMarkup(phase.choices, phase.notice);
+  } else if (phase.kind === "loading") root.innerHTML = loadingHtml(phase.difficulty);
   else if (phase.kind === "error") root.innerHTML = errorHtml(phase.message);
   else root.innerHTML = playHtml(phase.play);
   if (phase.kind === "play" && phase.play.complete) {
