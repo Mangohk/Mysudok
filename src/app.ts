@@ -27,14 +27,22 @@ import {
   type HintView,
 } from "./engine/hint";
 import { applyDealMorph } from "./engine/morph";
+import {
+  IN_PROGRESS_DEBOUNCE_MS,
+  createProgressWriter,
+  readInProgress,
+  type GameSnapshot,
+  type ProgressStorage,
+} from "./persist";
 
-type Phase =
+export type Phase =
   | { kind: "home" }
   | { kind: "loading"; difficulty: Difficulty }
   | { kind: "error"; difficulty: Difficulty; message: string }
-  | { kind: "play"; play: Play };
+  | { kind: "play"; play: Play }
+  | { kind: "resume"; play: Play };
 
-interface Play extends BoardInput {
+export interface Play extends BoardInput {
   difficulty: Difficulty;
   /** Set when this deal came from the expert bank, so the next draw can skip it. */
   bankId: string | null;
@@ -56,8 +64,24 @@ const appRoot = { el: null as HTMLElement | null };
 let phase: Phase = { kind: "home" };
 let requestId = 0;
 
+function browserProgressStorage(): ProgressStorage | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    return localStorage;
+  } catch {
+    return null;
+  }
+}
+
+const progress = createProgressWriter(browserProgressStorage, IN_PROGRESS_DEBOUNCE_MS);
+
 /** Digit-first coach. Hidden once the puzzle is complete. */
 export const DIGIT_FIRST_COACH = "先點數字，再點格子。";
+
+export const RESUME_PROMPT = "有未完成的一局。要繼續定開新局？";
+export const RESUME_CONTINUE = "繼續上一局";
+export const RESUME_NEW = "開新局";
+export const RESUME_ARIA = "續局";
 
 export const HOME_BLURB: Record<Difficulty, string> = {
   初級: "最後一格、剩餘格、唯一數字",
@@ -117,6 +141,11 @@ export function mount(root: HTMLElement): void {
   appRoot.el = root;
   root.addEventListener("click", onClick);
   window.addEventListener("keydown", onKeydown);
+  window.addEventListener("pagehide", () => progress.flush());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") progress.flush();
+  });
+  phase = phaseFromStorage(browserProgressStorage());
   render();
 }
 
@@ -159,6 +188,81 @@ function freshPlay(difficulty: Difficulty, puzzle: Puzzle, bankId: string | null
   };
 }
 
+function copyHintAction(action: HintAction | null): HintAction | null {
+  if (!action) return null;
+  if (action.kind === "notes") return { kind: "notes" };
+  if (action.kind === "fill") {
+    return { kind: "fill", value: action.value, evidence: action.evidence.slice(), unit: action.unit };
+  }
+  return {
+    kind: "clear",
+    digits: action.digits.slice(),
+    indexes: action.indexes.slice(),
+    keep: action.keep.slice(),
+    unit: action.unit,
+  };
+}
+
+export function snapshotFromPlay(play: Play): GameSnapshot {
+  return {
+    difficulty: play.difficulty,
+    bankId: play.bankId,
+    puzzle: {
+      givens: play.puzzle.givens.map((row) => row.slice()),
+      solution: play.puzzle.solution.map((row) => row.slice()),
+      maxTechnique: play.puzzle.maxTechnique,
+      unique: true,
+    },
+    values: play.values.slice(),
+    notes: play.notes.slice(),
+    clues: play.clues.slice(),
+    givens: play.givens.slice(),
+    solution: play.solution.slice(),
+    undo: play.undo.map((step) => ({
+      cells: step.cells.map((cell) => ({ index: cell.index, value: cell.value, notes: cell.notes })),
+    })),
+    selectedDigit: play.selectedDigit,
+    selectedCell: play.selectedCell,
+    pencilMode: play.pencilMode,
+    hintStep: play.hintStep,
+    hintIndexes: play.hintIndexes.slice(),
+    hintTechnique: play.hintTechnique,
+    hintAction: copyHintAction(play.hintAction),
+    hintNote: play.hintNote,
+    candidateNote: play.candidateNote,
+    checkNote: play.checkNote,
+    wrongMarks: play.wrongMarks ? play.wrongMarks.slice() : null,
+  };
+}
+
+export function playFromSnapshot(snapshot: GameSnapshot): Play {
+  const copied = snapshotFromPlay({ ...snapshot, menuOpen: false, complete: false, confirm: null });
+  return { ...copied, menuOpen: false, complete: false, confirm: null };
+}
+
+export function phaseFromStorage(storage: ProgressStorage | null): Phase {
+  if (!storage) return { kind: "home" };
+  const saved = readInProgress(storage);
+  if (!saved) return { kind: "home" };
+  return { kind: "resume", play: playFromSnapshot(saved) };
+}
+
+export function continueSavedGame(current: Phase): Phase {
+  if (current.kind !== "resume") return current;
+  return { kind: "play", play: current.play };
+}
+
+export function discardSavedGame(writer: { clear(): void }): Phase {
+  writer.clear();
+  requestId += 1;
+  return { kind: "home" };
+}
+
+export function rememberPlay(writer: { save(snapshot: GameSnapshot): void; clear(): void }, play: Play): void {
+  if (play.complete) writer.clear();
+  else writer.save(snapshotFromPlay(play));
+}
+
 function resetHint(play: Play): void {
   applyHintView(play, emptyHintView(null));
 }
@@ -196,6 +300,7 @@ async function loadBankEntries(): Promise<BankEntry[] | null> {
 
 async function startGame(difficulty: Difficulty, avoidId?: string | null): Promise<void> {
   const id = ++requestId;
+  progress.clear();
   phase = { kind: "loading", difficulty };
   render();
   try {
@@ -215,6 +320,7 @@ async function startGame(difficulty: Difficulty, avoidId?: string | null): Promi
     phase = { kind: "error", difficulty, message };
   }
   render();
+  if (phase.kind === "play") progress.flush();
 }
 
 function redraw(play: Play): void {
@@ -235,6 +341,16 @@ function onClick(event: MouseEvent): void {
   const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-action]");
   if (!target) return;
   const action = target.dataset.action;
+  if (phase.kind === "resume") {
+    if (action === "resume-keep") {
+      phase = continueSavedGame(phase);
+      render();
+    } else if (action === "resume-drop") {
+      phase = discardSavedGame(progress);
+      render();
+    }
+    return;
+  }
   if (action === "start") {
     const difficulty = target.dataset.difficulty;
     if (difficulty === "初級" || difficulty === "中級" || difficulty === "高級" || difficulty === "專家") {
@@ -280,6 +396,7 @@ function onClick(event: MouseEvent): void {
     }
     applyRestart(phase.play);
     render();
+    progress.flush();
     return;
   }
   if (action === "confirm-no") {
@@ -299,6 +416,7 @@ function onClick(event: MouseEvent): void {
     } else if (choice === "restart") {
       applyRestart(phase.play);
       render();
+      progress.flush();
     } else if (choice === "check") {
       const wrong = wrongFillIndexes(phase.play);
       phase.play.wrongMarks = wrong;
@@ -491,6 +609,16 @@ export function confirmCopy(kind: Play["confirm"]): string {
   return "";
 }
 
+export function resumePromptHtml(): string {
+  return `<div class="confirm" role="alertdialog" aria-label="${RESUME_ARIA}">
+          <p>${RESUME_PROMPT}</p>
+          <div class="confirm-actions">
+            <button type="button" class="primary" data-action="resume-keep">${RESUME_CONTINUE}</button>
+            <button type="button" data-action="resume-drop">${RESUME_NEW}</button>
+          </div>
+        </div>`;
+}
+
 /** Fields the board renderer reads for same-digit and note highlights. */
 export interface BoardMarkup {
   values: number[];
@@ -600,7 +728,7 @@ function padHtml(play: Play): string {
   return padMarkup(play, play.complete);
 }
 
-function playHtml(play: Play): string {
+export function playHtml(play: Play, resume = false): string {
   const banner = play.hintNote ?? play.candidateNote ?? play.checkNote;
   const status = playStatusMarkup(play.complete, banner);
   const hintLabel = hintButtonLabel(play.hintStep, play.hintTechnique);
@@ -608,8 +736,9 @@ function playHtml(play: Play): string {
   const menu = play.menuOpen
     ? `<div class="menu-pop" role="menu"><button type="button" data-action="fill-candidates" ${locked}>填滿候選</button><button type="button" data-action="check-wrong">檢查錯格</button></div>`
     : "";
-  const confirm =
-    play.confirm === null
+  const confirm = resume
+    ? resumePromptHtml()
+    : play.confirm === null
       ? ""
       : `<div class="confirm" role="alertdialog" aria-label="確認">
           <p>${confirmCopy(play.confirm)}</p>
@@ -627,7 +756,7 @@ function playHtml(play: Play): string {
         </div>
       </div>`
     : "";
-  return `<section class="play" data-difficulty="${esc(play.difficulty)}">
+  return `<section class="play" data-difficulty="${esc(play.difficulty)}"${resume ? ' data-resume="true"' : ""}>
     <header class="top">
       ${playTopCopyMarkup(play.complete, play.difficulty, play.puzzle.maxTechnique, emptyCellCount(play))}
       <div class="top-actions">
@@ -720,7 +849,16 @@ function render(): void {
   if (phase.kind === "home") root.innerHTML = homeHtml();
   else if (phase.kind === "loading") root.innerHTML = loadingHtml(phase.difficulty);
   else if (phase.kind === "error") root.innerHTML = errorHtml(phase.message);
-  else root.innerHTML = playHtml(phase.play);
+  else if (phase.kind === "resume") root.innerHTML = playHtml(phase.play, true);
+  else {
+    root.innerHTML = playHtml(phase.play);
+    rememberPlay(progress, phase.play);
+  }
+  if (phase.kind === "resume") {
+    for (const selector of [".top-action-row", ".play-main", ".play-rail"]) {
+      root.querySelector(selector)?.setAttribute("inert", "");
+    }
+  }
   if (phase.kind === "play" && phase.play.complete) {
     root.querySelector(".done")?.scrollIntoView({ block: "nearest" });
   }

@@ -176,7 +176,7 @@ button { cursor: pointer; touch-action: manipulation; }
   border-color: transparent;
 }
 
-.done button.primary, .error button.primary {
+.done button.primary, .error button.primary, .confirm button.primary {
   background: var(--ink);
   color: var(--paper);
   border-color: var(--ink);
