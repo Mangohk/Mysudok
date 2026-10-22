@@ -74,6 +74,7 @@ function browserProgressStorage(): ProgressStorage | null {
 }
 
 const progress = createProgressWriter(browserProgressStorage, IN_PROGRESS_DEBOUNCE_MS);
+let startGuard: DiscardStartGuard | null = null;
 
 /** Digit-first coach. Hidden once the puzzle is complete. */
 export const DIGIT_FIRST_COACH = "先點數字，再點格子。";
@@ -258,6 +259,31 @@ export function discardSavedGame(writer: { clear(): void }): Phase {
   return { kind: "home" };
 }
 
+/**
+ * After 開新局, the home card can sit where that button was. A second click
+ * from the same gesture (double-click or a delayed extra click) would start
+ * 初級 and write a new save, so the next reload asks to resume again.
+ */
+export const DISCARD_START_GUARD_MS = 600;
+export const DISCARD_START_GUARD_RADIUS = 72;
+
+export interface DiscardStartGuard {
+  until: number;
+  x: number;
+  y: number;
+}
+
+export function guardStartAfterDiscard(now: number, x: number, y: number): DiscardStartGuard {
+  return { until: now + DISCARD_START_GUARD_MS, x, y };
+}
+
+export function sameSpotStart(guard: DiscardStartGuard | null, now: number, x: number, y: number): boolean {
+  if (!guard || now >= guard.until) return false;
+  const dx = x - guard.x;
+  const dy = y - guard.y;
+  return dx * dx + dy * dy <= DISCARD_START_GUARD_RADIUS * DISCARD_START_GUARD_RADIUS;
+}
+
 export function rememberPlay(writer: { save(snapshot: GameSnapshot): void; clear(): void }, play: Play): void {
   if (play.complete) writer.clear();
   else writer.save(snapshotFromPlay(play));
@@ -347,11 +373,14 @@ function onClick(event: MouseEvent): void {
       render();
     } else if (action === "resume-drop") {
       phase = discardSavedGame(progress);
+      startGuard = guardStartAfterDiscard(Date.now(), event.clientX, event.clientY);
       render();
     }
     return;
   }
   if (action === "start") {
+    if (sameSpotStart(startGuard, Date.now(), event.clientX, event.clientY)) return;
+    startGuard = null;
     const difficulty = target.dataset.difficulty;
     if (difficulty === "初級" || difficulty === "中級" || difficulty === "高級" || difficulty === "專家") {
       void startGame(difficulty);

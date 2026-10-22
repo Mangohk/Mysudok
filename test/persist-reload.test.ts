@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  DISCARD_START_GUARD_MS,
+  DISCARD_START_GUARD_RADIUS,
   continueSavedGame,
   discardSavedGame,
+  guardStartAfterDiscard,
   phaseFromStorage,
   playFromSnapshot,
   playHtml,
   rememberPlay,
   resumePromptHtml,
+  sameSpotStart,
   snapshotFromPlay,
   type Play,
 } from "../src/app.ts";
@@ -172,6 +176,24 @@ test("continue restores the same unfinished game and new game clears the slot", 
   assert.equal(home.kind, "home");
   assert.equal(readInProgress(storage), null);
   assert.equal(phaseFromStorage(storage).kind, "home");
+});
+
+test("a second click on the same spot as 開新局 does not start the difficulty now underneath", () => {
+  const now = 10_000;
+  const guard = guardStartAfterDiscard(now, 876, 184);
+  assert.equal(guard.until - now, DISCARD_START_GUARD_MS);
+  assert.equal(sameSpotStart(guard, now + 40, 876, 184), true);
+  assert.equal(sameSpotStart(guard, now + 300, 880, 190), true);
+  assert.equal(sameSpotStart(guard, now + DISCARD_START_GUARD_MS, 876, 184), false);
+  assert.equal(sameSpotStart(guard, now + 50, 876, 184 + DISCARD_START_GUARD_RADIUS + 8), false);
+  assert.equal(sameSpotStart(null, now + 50, 876, 184), false);
+
+  const resume = appSource.slice(appSource.indexOf('if (phase.kind === "resume")'), appSource.indexOf('if (action === "start")'));
+  assert.match(resume, /discardSavedGame\(progress\)/);
+  assert.match(resume, /guardStartAfterDiscard\(Date\.now\(\), event\.clientX, event\.clientY\)/);
+  const start = appSource.slice(appSource.indexOf('if (action === "start")'), appSource.indexOf('if (action === "retry")'));
+  assert.match(start, /sameSpotStart\(startGuard, Date\.now\(\), event\.clientX, event\.clientY\)/);
+  assert.equal(start.includes("startGame"), true);
 });
 
 test("a finished or unreadable save does not prompt, and a new deal replaces the old one", () => {
