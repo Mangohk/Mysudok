@@ -18,6 +18,7 @@ import {
 import { loadPracticeBank, peekPracticeBank, type BankEntry } from "./engine/bank";
 import { dealExpert } from "./engine/expert-deal";
 import { generate, type Difficulty, type Puzzle } from "./engine/generate";
+import { geometryFromLength, geometryOf, isDifficulty, isMiniDifficulty, type Geometry } from "./engine/geometry";
 import {
   emptyHintView,
   hintButtonLabel,
@@ -85,6 +86,8 @@ export const RESUME_NEW = "開新局";
 export const RESUME_ARIA = "續局";
 
 export const HOME_BLURB: Record<Difficulty, string> = {
+  "4×4": "2×2 宮",
+  "6×6": "2×3 宮",
   初級: "最後一格、剩餘格、唯一數字",
   中級: "筆記之後嘅單一、數對、三數組",
   高級: "Pointing Pairs、X-Wing",
@@ -330,8 +333,9 @@ async function startGame(difficulty: Difficulty, avoidId?: string | null): Promi
   phase = { kind: "loading", difficulty };
   render();
   try {
-    const dealt =
-      difficulty === "專家"
+    const dealt = isMiniDifficulty(difficulty)
+      ? { puzzle: await generate(difficulty), bankId: null as string | null }
+      : difficulty === "專家"
         ? await dealExpert({
             entries: await loadBankEntries(),
             avoidId,
@@ -382,7 +386,7 @@ function onClick(event: MouseEvent): void {
     if (sameSpotStart(startGuard, Date.now(), event.clientX, event.clientY)) return;
     startGuard = null;
     const difficulty = target.dataset.difficulty;
-    if (difficulty === "初級" || difficulty === "中級" || difficulty === "高級" || difficulty === "專家") {
+    if (difficulty && isDifficulty(difficulty)) {
       void startGame(difficulty);
     }
     return;
@@ -603,16 +607,20 @@ function showHint(play: Play): void {
   render();
 }
 
-function cellLabel(index: number, value: number, given: boolean): string {
-  const row = Math.floor(index / 9) + 1;
-  const col = (index % 9) + 1;
+function playGeometry(values: readonly number[]): Geometry {
+  return geometryFromLength(values.length) ?? geometryOf(9);
+}
+
+function cellLabel(index: number, value: number, given: boolean, size: number): string {
+  const row = Math.floor(index / size) + 1;
+  const col = (index % size) + 1;
   if (value === 0) return `第${row}行第${col}列，空`;
   return `第${row}行第${col}列，${given ? "題目" : "填入"} ${value}`;
 }
 
-function notesHtml(mask: number): string {
+function notesHtml(mask: number, size: number): string {
   let html = '<span class="notes">';
-  for (let digit = 1; digit <= 9; digit++) {
+  for (let digit = 1; digit <= size; digit++) {
     const on = (mask & (1 << digit)) !== 0;
     html += `<i>${on ? digit : ""}</i>`;
   }
@@ -678,11 +686,12 @@ function markupBoard(play: BoardMarkup): BoardInput {
 }
 
 export function boardHtml(play: BoardMarkup): string {
+  const geo = playGeometry(play.values);
   const conflicts = conflictMask(play.values);
   const armed = play.selectedDigit;
   const highlight = armed !== null && !isDigitDone(markupBoard(play), armed);
-  let html = '<div class="board" role="grid" aria-label="數獨棋盤">';
-  for (let index = 0; index < 81; index++) {
+  let html = `<div class="board" data-size="${geo.size}" role="grid" aria-label="數獨棋盤">`;
+  for (let index = 0; index < geo.cellCount; index++) {
     const value = play.values[index];
     const classes = ["cell"];
     if (play.givens[index]) classes.push("given");
@@ -691,7 +700,7 @@ export function boardHtml(play: BoardMarkup): string {
     if (play.wrongMarks?.includes(index)) classes.push("wrong");
     const hintClasses = conflicts[index]
       ? []
-      : hintCellClasses(play.hintTechnique, play.hintStep, play.hintIndexes, index, value);
+      : hintCellClasses(play.hintTechnique, play.hintStep, play.hintIndexes, index, value, geo.size);
     const canHighlight = !conflicts[index] && !classes.includes("wrong") && highlight;
     if (hintClasses.length > 0) classes.push(...hintClasses);
     else if (canHighlight && value === armed) classes.push("same");
@@ -704,13 +713,14 @@ export function boardHtml(play: BoardMarkup): string {
     ) {
       classes.push("same-note");
     }
-    const thickRight = (index + 1) % 9 !== 0 && (index + 1) % 3 === 0;
-    const row = Math.floor(index / 9);
-    const thickBottom = row % 3 === 2 && row !== 8;
+    const col = index % geo.size;
+    const row = Math.floor(index / geo.size);
+    const thickRight = (col + 1) % geo.boxW === 0 && col !== geo.size - 1;
+    const thickBottom = (row + 1) % geo.boxH === 0 && row !== geo.size - 1;
     if (thickRight) classes.push("thick-r");
     if (thickBottom) classes.push("thick-b");
-    const inner = value !== 0 ? String(value) : notesHtml(play.notes[index]);
-    html += `<button type="button" class="${classes.join(" ")}" role="gridcell" data-action="select" data-index="${index}" aria-selected="${index === play.selectedCell}" aria-label="${cellLabel(index, value, play.givens[index])}">${inner}</button>`;
+    const inner = value !== 0 ? String(value) : notesHtml(play.notes[index] ?? 0, geo.size);
+    html += `<button type="button" class="${classes.join(" ")}" role="gridcell" data-action="select" data-index="${index}" aria-selected="${index === play.selectedCell}" aria-label="${cellLabel(index, value ?? 0, play.givens[index] ?? false, geo.size)}">${inner}</button>`;
   }
   html += "</div>";
   return html;
@@ -724,10 +734,11 @@ export interface PadKey {
   disabled: boolean;
 }
 
-/** Digit pad keys in visual order. Always 1–9; a finished digit only changes style. */
+/** Digit pad keys in visual order. One key per legal digit; a finished digit only changes style. */
 export function padKeys(board: BoardInput, complete: boolean): PadKey[] {
+  const size = playGeometry(board.values).size;
   const keys: PadKey[] = [];
-  for (let digit = 1; digit <= 9; digit++) {
+  for (let digit = 1; digit <= size; digit++) {
     const done = isDigitDone(board, digit);
     keys.push({
       digit,
@@ -750,7 +761,8 @@ export function padMarkup(board: BoardInput, complete: boolean): string {
       return `<button type="button" class="${classes.join(" ")}" data-action="digit" data-digit="${key.digit}" data-remaining="${key.remain}" data-done="${key.done}" aria-pressed="${key.armed}" aria-label="數字 ${key.digit}，剩餘 ${key.remain}" ${disabled}><span class="pad-digit">${key.digit}</span><span class="pad-remain">${key.remain}</span></button>`;
     })
     .join("");
-  return `<div class="pad">${digits}</div>`;
+  const size = playGeometry(board.values).size;
+  return `<div class="pad" data-size="${size}">${digits}</div>`;
 }
 
 function padHtml(play: Play): string {
@@ -819,8 +831,12 @@ export function playHtml(play: Play, resume = false): string {
       </div>
       ${padHtml(play)}
     </div>
-    <p class="help">1–9 選定數字，再點空格填入。再點同一數字可取消。N 筆記 · Z 上一步 · H 提示</p>
+    <p class="help">${esc(helpText(playGeometry(play.values).size))}</p>
   </section>`;
+}
+
+function helpText(size: number): string {
+  return `1–${size} 選定數字，再點空格填入。再點同一數字可取消。N 筆記 · Z 上一步 · H 提示`;
 }
 
 export function homeHtml(): string {
@@ -831,6 +847,14 @@ export function homeHtml(): string {
       <p class="lede">難度由這一題需要的最高解題技巧決定。</p>
     </header>
     <div class="choices">
+      <button type="button" class="choice mini" data-action="start" data-difficulty="4×4">
+        <span class="kicker">4×4</span>
+        <span class="blurb">${esc(HOME_BLURB["4×4"])}</span>
+      </button>
+      <button type="button" class="choice mini" data-action="start" data-difficulty="6×6">
+        <span class="kicker">6×6</span>
+        <span class="blurb">${esc(HOME_BLURB["6×6"])}</span>
+      </button>
       <button type="button" class="choice intro" data-action="start" data-difficulty="初級">
         <span class="kicker">初級</span>
         <span class="blurb">${esc(HOME_BLURB.初級)}</span>

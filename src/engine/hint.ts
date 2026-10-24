@@ -1,4 +1,5 @@
 import { lastFreeEvidence, lastPossibleEvidence, lastRemainingEvidence } from "../board-input";
+import { geometryFromLength, type BoardSize } from "./geometry";
 import { scanOrderFromPuzzle } from "./scan-order";
 import {
   colOf,
@@ -127,8 +128,12 @@ function puzzleOrder(flat: readonly number[], givensFlat?: readonly number[]): r
  * #11 and #12 try box → line pointing before line → box claiming.
  * Does not call openzeloku `nextHint`.
  */
+function boardSize(length: number): BoardSize {
+  return geometryFromLength(length)?.size ?? 9;
+}
+
 export function findHint(flat: readonly number[], notes?: readonly number[], givensFlat?: readonly number[]): StepHint | null {
-  if (flat.length !== 81 || flat.every((value) => value !== 0)) return null;
+  if (!geometryFromLength(flat.length) || flat.every((value) => value !== 0)) return null;
 
   const order = puzzleOrder(flat, givensFlat);
   const free = findLastFreeCell(flat, order);
@@ -371,8 +376,9 @@ export function pressHint(
   if (view.technique === "notes" && view.step >= 1) {
     return { view: emptyHintView(null), write: null, clearNotes: null, fillCandidates: true };
   }
+  const size = boardSize(values.length);
   if (view.technique && FILL3.has(view.technique) && view.action?.kind === "fill" && view.step >= 1) {
-    return pressFill3(view, values, view.action.value, order);
+    return pressFill3(view, values, view.action.value, order, size);
   }
   if (view.technique === "obvious_singles" && view.action?.kind === "fill" && view.step >= 1) {
     return pressObviousSingle(view, view.action);
@@ -381,7 +387,7 @@ export function pressHint(
     return pressHiddenSingle(view, view.action);
   }
   if (view.technique && CLEAR4.has(view.technique) && view.action?.kind === "clear" && view.step >= 1) {
-    return pressClear4(view, view.action);
+    return pressClear4(view, view.action, size);
   }
   if (view.step >= 1) return idle(view);
 
@@ -417,7 +423,13 @@ function beginnerEvidence(
   return fallback.filter((index) => index !== target);
 }
 
-function pressFill3(view: HintView, values: readonly number[], digit: number, order: readonly number[]): HintPress {
+function pressFill3(
+  view: HintView,
+  values: readonly number[],
+  digit: number,
+  order: readonly number[],
+  size: BoardSize,
+): HintPress {
   const target = view.indexes[0];
   if (target === undefined || view.action?.kind !== "fill") return stuck();
   if (view.step >= 2) {
@@ -426,7 +438,7 @@ function pressFill3(view: HintView, values: readonly number[], digit: number, or
   const evidence = beginnerEvidence(view.technique ?? "", values, target, digit, view.action.evidence, order);
   const indexes = [target];
   if (view.technique === "last_remaining_cell" && view.action.unit) {
-    for (const cell of unitCells(target, view.action.unit)) {
+    for (const cell of unitCells(target, view.action.unit, size)) {
       if (!indexes.includes(cell)) indexes.push(cell);
     }
   }
@@ -528,13 +540,13 @@ function withExtra(pattern: readonly number[], extra: readonly number[]): number
 }
 
 /** L2 paints the whole house. Pattern cells stay at the front so classes can find them. */
-function houseViewIndexes(pattern: readonly number[], unit: UnitKind): number[] {
+function houseViewIndexes(pattern: readonly number[], unit: UnitKind, size: BoardSize): number[] {
   const anchor = pattern[0];
   if (anchor === undefined) return pattern.slice();
-  return withExtra(pattern, unitCells(anchor, unit));
+  return withExtra(pattern, unitCells(anchor, unit, size));
 }
 
-function pressClear4(view: HintView, action: Extract<HintAction, { kind: "clear" }>): HintPress {
+function pressClear4(view: HintView, action: Extract<HintAction, { kind: "clear" }>, size: BoardSize): HintPress {
   if (view.step >= 3) {
     return {
       view: emptyHintView(null),
@@ -547,7 +559,7 @@ function pressClear4(view: HintView, action: Extract<HintAction, { kind: "clear"
   if (view.step === 1) {
     return idle({
       step: 2,
-      indexes: lockedIndexes(view.technique, pattern, action.unit),
+      indexes: lockedIndexes(view.technique, pattern, action.unit, size),
       technique: view.technique,
       action,
       note: hintClearLockedText(view.technique ?? "", action.keep, action.unit, action.digits),
@@ -558,14 +570,14 @@ function pressClear4(view: HintView, action: Extract<HintAction, { kind: "clear"
     indexes: revealIndexes(view.technique, pattern, action.indexes),
     technique: view.technique,
     action,
-    note: hintClearReveal(view.technique ?? "", action.digits, action.keep, action.unit, sharedLine(pattern)),
+    note: hintClearReveal(view.technique ?? "", action.digits, action.keep, action.unit, sharedLine(pattern, size)),
   });
 }
 
-function sharedLine(cells: readonly number[]): "row" | "col" {
+function sharedLine(cells: readonly number[], size: BoardSize = 9): "row" | "col" {
   if (cells.length === 0) return "row";
-  const row = rowOf(cells[0] ?? 0);
-  return cells.every((cell) => rowOf(cell) === row) ? "row" : "col";
+  const row = rowOf(cells[0] ?? 0, size);
+  return cells.every((cell) => rowOf(cell, size) === row) ? "row" : "col";
 }
 
 function dedupe(cells: readonly number[]): number[] {
@@ -574,28 +586,30 @@ function dedupe(cells: readonly number[]): number[] {
   return indexes;
 }
 
-function cellsAlong(indexes: readonly number[], kind: "row" | "col"): number[] {
+function cellsAlong(indexes: readonly number[], kind: "row" | "col", size: BoardSize): number[] {
   const ids: number[] = [];
   for (const cell of indexes) {
-    const id = kind === "row" ? rowOf(cell) : colOf(cell);
+    const id = kind === "row" ? rowOf(cell, size) : colOf(cell, size);
     if (!ids.includes(id)) ids.push(id);
   }
   const out: number[] = [];
   for (const id of ids) {
-    for (let offset = 0; offset < 9; offset++) out.push(kind === "row" ? id * 9 + offset : offset * 9 + id);
+    for (let offset = 0; offset < size; offset++) out.push(kind === "row" ? id * size + offset : offset * size + id);
   }
   return out;
 }
 
-function fishHouse(pattern: readonly number[]): number[] {
-  return dedupe([...cellsAlong(pattern, "row"), ...cellsAlong(pattern, "col")]);
+function fishHouse(pattern: readonly number[], size: BoardSize): number[] {
+  return dedupe([...cellsAlong(pattern, "row", size), ...cellsAlong(pattern, "col", size)]);
 }
 
-function pointingHouse(pattern: readonly number[], unit: UnitKind): number[] {
+function pointingHouse(pattern: readonly number[], unit: UnitKind, size: BoardSize): number[] {
   const anchor = pattern[0];
   if (anchor === undefined) return [];
-  if (unit === "box") return dedupe([...unitCells(anchor, "box"), ...unitCells(anchor, sharedLine(pattern))]);
-  return dedupe([...unitCells(anchor, unit), ...unitCells(anchor, "box")]);
+  if (unit === "box") {
+    return dedupe([...unitCells(anchor, "box", size), ...unitCells(anchor, sharedLine(pattern, size), size)]);
+  }
+  return dedupe([...unitCells(anchor, unit, size), ...unitCells(anchor, "box", size)]);
 }
 
 function markPattern(pattern: readonly number[], extra: readonly number[], duplicate: boolean): number[] {
@@ -605,15 +619,20 @@ function markPattern(pattern: readonly number[], extra: readonly number[], dupli
   return indexes;
 }
 
-function lockedIndexes(technique: string | null, pattern: readonly number[], unit: UnitKind): number[] {
+function lockedIndexes(
+  technique: string | null,
+  pattern: readonly number[],
+  unit: UnitKind,
+  size: BoardSize,
+): number[] {
   if (technique === "y_wing") return pattern.slice();
   if (technique === "x_wing" || technique === "swordfish") {
-    return markPattern(pattern, fishHouse(pattern), technique === "swordfish");
+    return markPattern(pattern, fishHouse(pattern, size), technique === "swordfish");
   }
   if (technique === "pointing_pairs" || technique === "pointing_triples") {
-    return markPattern(pattern, pointingHouse(pattern, unit), false);
+    return markPattern(pattern, pointingHouse(pattern, unit, size), false);
   }
-  return houseViewIndexes(pattern, unit);
+  return houseViewIndexes(pattern, unit, size);
 }
 
 function revealIndexes(technique: string | null, pattern: readonly number[], clearIndexes: readonly number[]): number[] {
@@ -649,13 +668,14 @@ export function hintCellClasses(
   indexes: readonly number[],
   index: number,
   value: number,
+  size: BoardSize = 9,
 ): string[] {
   if (step < 1 || !indexes.includes(index)) return [];
   if (technique === "last_remaining_cell" && step === 2) {
     const at = indexes.indexOf(index);
     if (at < 0) return [];
     if (at === 0) return ["hint-house", "hint"];
-    if (at < 9) return ["hint-house"];
+    if (at < size) return ["hint-house"];
     return ["hint-evidence"];
   }
   if (technique === "hidden_singles" && step === 2) {

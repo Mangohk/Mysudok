@@ -1,3 +1,4 @@
+import { geometryFromLength, geometryOf, type BoardSize, type Geometry } from "./geometry";
 import { scanOrderFromPuzzle, scanRanks } from "./scan-order";
 
 /**
@@ -127,56 +128,45 @@ export function isExpertTechnique(id: AppliedTechnique): boolean {
   return RANK[id] >= 14;
 }
 
-const N = 9;
-const CELLS = 81;
-const ALL_DIGITS = 0x3fe;
-
-export function rowOf(i: number): number {
-  return Math.floor(i / N);
+export function rowOf(i: number, size: BoardSize = 9): number {
+  return Math.floor(i / size);
 }
 
-export function colOf(i: number): number {
-  return i % N;
+export function colOf(i: number, size: BoardSize = 9): number {
+  return i % size;
 }
 
-export function boxOf(i: number): number {
-  return Math.floor(rowOf(i) / 3) * 3 + Math.floor(colOf(i) / 3);
+export function boxOf(i: number, size: BoardSize = 9): number {
+  const g = geometryOf(size);
+  const across = size / g.boxW;
+  return Math.floor(rowOf(i, size) / g.boxH) * across + Math.floor(colOf(i, size) / g.boxW);
 }
 
-const ROWS: number[][] = Array.from({ length: N }, (_, r) =>
-  Array.from({ length: N }, (_, c) => r * N + c),
-);
-const COLS: number[][] = Array.from({ length: N }, (_, c) =>
-  Array.from({ length: N }, (_, r) => r * N + c),
-);
-const BOXES: number[][] = Array.from({ length: N }, (_, b) => {
-  const br = Math.floor(b / 3) * 3;
-  const bc = (b % 3) * 3;
-  const cells: number[] = [];
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 3; c++) cells.push((br + r) * N + (bc + c));
-  }
-  return cells;
-});
-const UNITS: number[][] = [...ROWS, ...COLS, ...BOXES];
-
-const PEERS: number[][] = Array.from({ length: CELLS }, (_, i) => {
-  const set = new Set<number>();
-  for (const j of ROWS[rowOf(i)]) if (j !== i) set.add(j);
-  for (const j of COLS[colOf(i)]) if (j !== i) set.add(j);
-  for (const j of BOXES[boxOf(i)]) if (j !== i) set.add(j);
-  return [...set];
-});
-
-export function peersOf(index: number): readonly number[] {
-  return PEERS[index] ?? [];
+export function peersOf(index: number, size: BoardSize = 9): readonly number[] {
+  return geometryOf(size).peers[index] ?? [];
 }
 
-/** The row, column, or box that contains `index`. */
-export function unitCells(index: number, kind: UnitKind): readonly number[] {
-  if (kind === "row") return ROWS[rowOf(index)] ?? [];
-  if (kind === "col") return COLS[colOf(index)] ?? [];
-  return BOXES[boxOf(index)] ?? [];
+/** The row, column, or box that contains `index`. Defaults to a 9×9 house. */
+export function unitCells(index: number, kind: UnitKind, size: BoardSize = 9): readonly number[] {
+  const g = geometryOf(size);
+  if (kind === "row") return g.rows[rowOf(index, size)] ?? [];
+  if (kind === "col") return g.cols[colOf(index, size)] ?? [];
+  return g.boxes[boxOf(index, size)] ?? [];
+}
+
+function gridOf(values: readonly number[]): Geometry | null {
+  return geometryFromLength(values.length);
+}
+
+function unitKind(size: number, unitIndex: number): UnitKind {
+  if (unitIndex < size) return "row";
+  if (unitIndex < size * 2) return "col";
+  return "box";
+}
+
+function ranksFor(cellCount: number, order: readonly number[] | undefined): Uint8Array | null {
+  if (!order || order.length !== cellCount) return null;
+  return scanRanks(order);
 }
 
 function popcount(mask: number): number {
@@ -202,24 +192,20 @@ export function maskDigits(mask: number): number[] {
   return digits;
 }
 
-function unitKind(unitIndex: number): UnitKind {
-  if (unitIndex < 9) return "row";
-  if (unitIndex < 18) return "col";
-  return "box";
-}
-
 function placementMask(values: readonly number[], index: number): number {
+  const g = gridOf(values) ?? geometryOf(9);
   let used = 0;
-  for (const peer of PEERS[index] ?? []) {
+  for (const peer of g.peers[index] ?? []) {
     const value = values[peer] ?? 0;
-    if (value >= 1 && value <= 9) used |= 1 << value;
+    if (value >= 1 && value <= g.size) used |= 1 << value;
   }
-  return ALL_DIGITS & ~used;
+  return g.allDigits & ~used;
 }
 
 function filledDifferentPeers(values: readonly number[], index: number, digit: number): number[] {
+  const g = gridOf(values) ?? geometryOf(9);
   const evidence: number[] = [];
-  for (const peer of PEERS[index] ?? []) {
+  for (const peer of g.peers[index] ?? []) {
     const value = values[peer] ?? 0;
     if (value !== 0 && value !== digit) evidence.push(peer);
   }
@@ -227,6 +213,7 @@ function filledDifferentPeers(values: readonly number[], index: number, digit: n
 }
 
 function filledHouses(values: readonly number[], index: number): number[] {
+  const g = gridOf(values) ?? geometryOf(9);
   const seen = new Set<number>();
   const out: number[] = [];
   const add = (cells: readonly number[]) => {
@@ -236,18 +223,21 @@ function filledHouses(values: readonly number[], index: number): number[] {
       if ((values[cell] ?? 0) !== 0) out.push(cell);
     }
   };
-  add(ROWS[rowOf(index)] ?? []);
-  add(COLS[colOf(index)] ?? []);
-  add(BOXES[boxOf(index)] ?? []);
+  const row = rowOf(index, g.size);
+  const col = colOf(index, g.size);
+  add(g.rows[row] ?? []);
+  add(g.cols[col] ?? []);
+  add(g.boxes[boxOf(index, g.size)] ?? []);
   return out;
 }
 
 function blockers(values: readonly number[], unit: readonly number[], digit: number): number[] {
+  const g = gridOf(values) ?? geometryOf(9);
   const seen = new Set<number>();
   const evidence: number[] = [];
   for (const cell of unit) {
     if ((values[cell] ?? 0) !== 0) continue;
-    for (const peer of PEERS[cell] ?? []) {
+    for (const peer of g.peers[cell] ?? []) {
       if ((values[peer] ?? 0) !== digit || seen.has(peer)) continue;
       seen.add(peer);
       evidence.push(peer);
@@ -284,19 +274,21 @@ export interface Analysis {
 type StepResult = "progress" | "stuck" | "contradiction";
 
 function contradictory(values: number[], cand: Uint16Array): boolean {
-  for (let i = 0; i < CELLS; i++) {
+  const count = values.length;
+  for (let i = 0; i < count; i++) {
     if (values[i] === 0 && cand[i] === 0) return true;
   }
   return false;
 }
 
 function place(values: number[], cand: Uint16Array, i: number, v: number): boolean {
-  if (values[i] !== 0 || v < 1 || v > 9) return false;
+  const g = gridOf(values) ?? geometryOf(9);
+  if (values[i] !== 0 || v < 1 || v > g.size) return false;
   if ((cand[i] & (1 << v)) === 0) return false;
   values[i] = v;
   cand[i] = 0;
   const bit = 1 << v;
-  for (const p of PEERS[i] ?? []) {
+  for (const p of g.peers[i] ?? []) {
     if (values[p] === v) return false;
     if ((cand[p] & bit) === 0) continue;
     cand[p] &= ~bit;
@@ -306,16 +298,18 @@ function place(values: number[], cand: Uint16Array, i: number, v: number): boole
 }
 
 function initCandidates(values: number[]): Uint16Array | null {
-  const cand = new Uint16Array(CELLS);
-  for (let i = 0; i < CELLS; i++) {
+  const g = gridOf(values);
+  if (!g) return null;
+  const cand = new Uint16Array(g.cellCount);
+  for (let i = 0; i < g.cellCount; i++) {
     const v = values[i];
     if (v === 0) continue;
-    if (v < 1 || v > 9) return null;
-    for (const p of PEERS[i] ?? []) {
+    if (v < 1 || v > g.size) return null;
+    for (const p of g.peers[i] ?? []) {
       if (values[p] === v) return null;
     }
   }
-  for (let i = 0; i < CELLS; i++) {
+  for (let i = 0; i < g.cellCount; i++) {
     if (values[i] !== 0) continue;
     const mask = placementMask(values, i);
     cand[i] = mask;
@@ -335,18 +329,19 @@ function takeHit<T>(rank: Uint8Array | null, best: { hit: T; rank: number } | nu
 }
 
 function patternCellRank(rank: Uint8Array, cells: readonly number[]): number {
-  let best = CELLS;
+  let best = rank.length;
   for (const cell of cells) if (rank[cell] < best) best = rank[cell];
   return best;
 }
 
 /** #1 Last Free Cell. A unit with a single blank. */
 export function findLastFreeCell(values: readonly number[], order?: readonly number[]): FillSpot | null {
-  if (values.length !== CELLS) return null;
-  const rank = scanRanks(order);
+  const g = gridOf(values);
+  if (!g) return null;
+  const rank = ranksFor(g.cellCount, order);
   let best: { hit: FillSpot; rank: number } | null = null;
-  for (let u = 0; u < UNITS.length; u++) {
-    const unit = UNITS[u];
+  for (let u = 0; u < g.units.length; u++) {
+    const unit = g.units[u] ?? [];
     let empty = -1;
     let emptyCount = 0;
     let seen = 0;
@@ -355,14 +350,14 @@ export function findLastFreeCell(values: readonly number[], order?: readonly num
       if (value === 0) {
         emptyCount++;
         empty = index;
-      } else if (value >= 1 && value <= 9) {
+      } else if (value >= 1 && value <= g.size) {
         seen |= 1 << value;
       }
     }
     if (emptyCount !== 1 || empty < 0) continue;
-    const digit = digitOfSingle(ALL_DIGITS & ~seen);
+    const digit = digitOfSingle(g.allDigits & ~seen);
     if (digit === 0) continue;
-    const hit = { index: empty, digit, unit: unitKind(u), evidence: unit.filter((index) => index !== empty) };
+    const hit = { index: empty, digit, unit: unitKind(g.size, u), evidence: unit.filter((index) => index !== empty) };
     if (!rank) return hit;
     best = takeHit(rank, best, hit, rank[empty]);
   }
@@ -374,14 +369,15 @@ export function findLastFreeCell(values: readonly number[], order?: readonly num
  * Scan order inside each house is digit → cell (sudoku.com).
  */
 export function findLastRemainingCell(values: readonly number[], order?: readonly number[]): FillSpot | null {
-  if (values.length !== CELLS) return null;
-  const rank = scanRanks(order);
+  const g = gridOf(values);
+  if (!g) return null;
+  const rank = ranksFor(g.cellCount, order);
   let best: { hit: FillSpot; rank: number } | null = null;
-  for (let u = 0; u < UNITS.length; u++) {
-    const unit = UNITS[u];
+  for (let u = 0; u < g.units.length; u++) {
+    const unit = g.units[u] ?? [];
     const empty = unit.filter((index) => (values[index] ?? 0) === 0);
     if (empty.length < 2) continue;
-    for (let digit = 1; digit <= 9; digit++) {
+    for (let digit = 1; digit <= g.size; digit++) {
       if (unit.some((index) => values[index] === digit)) continue;
       const bit = 1 << digit;
       const slots = empty.filter((index) => (placementMask(values, index) & bit) !== 0);
@@ -390,7 +386,7 @@ export function findLastRemainingCell(values: readonly number[], order?: readonl
       const hit = {
         index,
         digit,
-        unit: unitKind(u),
+        unit: unitKind(g.size, u),
         evidence: blockers(values, unit, digit),
       };
       if (!rank) return hit;
@@ -405,10 +401,11 @@ export function findLastRemainingCell(values: readonly number[], order?: readonl
  * Scan order is cell → digit (sudoku.com).
  */
 export function findLastPossibleNumber(values: readonly number[], order?: readonly number[]): FillSpot | null {
-  if (values.length !== CELLS) return null;
-  const rank = scanRanks(order);
+  const g = gridOf(values);
+  if (!g) return null;
+  const rank = ranksFor(g.cellCount, order);
   let best: { hit: FillSpot; rank: number } | null = null;
-  for (let index = 0; index < CELLS; index++) {
+  for (let index = 0; index < g.cellCount; index++) {
     if ((values[index] ?? 0) !== 0) continue;
     const mask = placementMask(values, index);
     if (popcount(mask) !== 1) continue;
@@ -426,10 +423,11 @@ export function findLastPossibleNumber(values: readonly number[], order?: readon
  * `cand` is the player's notes, or the solver mask after eliminations.
  */
 export function findObviousSingle(values: readonly number[], cand: ArrayLike<number>, order?: readonly number[]): FillSpot | null {
-  if (values.length !== CELLS) return null;
-  const rank = scanRanks(order);
+  const g = gridOf(values);
+  if (!g) return null;
+  const rank = ranksFor(g.cellCount, order);
   let best: { hit: FillSpot; rank: number } | null = null;
-  for (let index = 0; index < CELLS; index++) {
+  for (let index = 0; index < g.cellCount; index++) {
     if ((values[index] ?? 0) !== 0) continue;
     const mask = cand[index] ?? 0;
     if (popcount(mask) !== 1) continue;
@@ -446,12 +444,13 @@ export function findObviousSingle(values: readonly number[], cand: ArrayLike<num
 
 /** #8 Hidden Singles on a candidate mask, ignoring singles already visible from placements. */
 export function findHiddenSingle(values: readonly number[], cand: ArrayLike<number>, order?: readonly number[]): FillSpot | null {
-  if (values.length !== CELLS) return null;
-  const rank = scanRanks(order);
+  const g = gridOf(values);
+  if (!g) return null;
+  const rank = ranksFor(g.cellCount, order);
   let best: { hit: FillSpot; rank: number } | null = null;
-  for (let u = 0; u < UNITS.length; u++) {
-    const unit = UNITS[u];
-    for (let digit = 1; digit <= 9; digit++) {
+  for (let u = 0; u < g.units.length; u++) {
+    const unit = g.units[u] ?? [];
+    for (let digit = 1; digit <= g.size; digit++) {
       const bit = 1 << digit;
       let count = 0;
       let found = -1;
@@ -473,7 +472,7 @@ export function findHiddenSingle(values: readonly number[], cand: ArrayLike<numb
         (index) => (values[index] ?? 0) === 0 && (placementMask(values, index) & bit) !== 0,
       );
       if (slots.length <= 1) continue;
-      const hit = { index: found, digit, unit: unitKind(u), evidence: unit.slice() };
+      const hit = { index: found, digit, unit: unitKind(g.size, u), evidence: unit.slice() };
       if (!rank) return hit;
       best = takeHit(rank, best, hit, rank[found]);
     }
@@ -506,11 +505,12 @@ export function findObviousSet(
   size: 2 | 3,
   order?: readonly number[],
 ): ClearSpot | null {
-  if (values.length !== CELLS) return null;
-  const rank = scanRanks(order);
+  const g = gridOf(values);
+  if (!g) return null;
+  const rank = ranksFor(g.cellCount, order);
   let best: { hit: ClearSpot; rank: number } | null = null;
-  for (let u = 0; u < UNITS.length; u++) {
-    const unit = UNITS[u];
+  for (let u = 0; u < g.units.length; u++) {
+    const unit = g.units[u] ?? [];
     const cells = unit.filter((index) => {
       if ((values[index] ?? 0) !== 0) return false;
       const count = popcount(cand[index] ?? 0);
@@ -529,7 +529,7 @@ export function findObviousSet(
       }
       if (clearIndexes.length === 0) continue;
       const digits = maskDigits(union);
-      const hit = { cells: chosen, digits, clearIndexes, keep: digits, unit: unitKind(u) };
+      const hit = { cells: chosen, digits, clearIndexes, keep: digits, unit: unitKind(g.size, u) };
       if (!rank) return hit;
       best = takeHit(rank, best, hit, patternCellRank(rank, chosen));
     }
@@ -544,19 +544,20 @@ export function findHiddenSet(
   size: 2 | 3,
   order?: readonly number[],
 ): ClearSpot | null {
-  if (values.length !== CELLS) return null;
-  const rank = scanRanks(order);
+  const g = gridOf(values);
+  if (!g) return null;
+  const rank = ranksFor(g.cellCount, order);
   let best: { hit: ClearSpot; rank: number } | null = null;
-  for (let u = 0; u < UNITS.length; u++) {
-    const unit = UNITS[u];
+  for (let u = 0; u < g.units.length; u++) {
+    const unit = g.units[u] ?? [];
     const locs: number[][] = Array.from({ length: 10 }, () => []);
     for (const index of unit) {
       if ((values[index] ?? 0) !== 0) continue;
       const mask = cand[index] ?? 0;
-      for (let digit = 1; digit <= 9; digit++) if ((mask & (1 << digit)) !== 0) locs[digit].push(index);
+      for (let digit = 1; digit <= g.size; digit++) if ((mask & (1 << digit)) !== 0) locs[digit].push(index);
     }
     const digits: number[] = [];
-    for (let digit = 1; digit <= 9; digit++) {
+    for (let digit = 1; digit <= g.size; digit++) {
       if (locs[digit].length >= 2 && locs[digit].length <= size) digits.push(digit);
     }
     if (digits.length < size) continue;
@@ -573,7 +574,7 @@ export function findHiddenSet(
         const remove = (cand[index] ?? 0) & ~keepMask;
         if (remove === 0) continue;
         dirty = true;
-        for (let digit = 1; digit <= 9; digit++) if ((remove & (1 << digit)) !== 0) extras.add(digit);
+        for (let digit = 1; digit <= g.size; digit++) if ((remove & (1 << digit)) !== 0) extras.add(digit);
       }
       if (!dirty) continue;
       const hit = {
@@ -581,7 +582,7 @@ export function findHiddenSet(
         digits: [...extras].sort((a, b) => a - b),
         clearIndexes: cellList,
         keep: group.slice().sort((a, b) => a - b),
-        unit: unitKind(u),
+        unit: unitKind(g.size, u),
       };
       if (!rank) return hit;
       best = takeHit(rank, best, hit, patternCellRank(rank, cellList));
@@ -640,18 +641,19 @@ export function findPointing(
   cand: ArrayLike<number>,
   size: 2 | 3,
 ): ClearSpot | null {
-  if (values.length !== CELLS) return null;
-  for (const box of BOXES) {
-    for (let digit = 1; digit <= 9; digit++) {
+  const g = gridOf(values);
+  if (!g) return null;
+  for (const box of g.boxes) {
+    for (let digit = 1; digit <= g.size; digit++) {
       const bit = 1 << digit;
       const cells = openCells(values, cand, box, bit);
       if (cells.length !== size) continue;
-      const row = rowOf(cells[0] ?? 0);
-      const col = colOf(cells[0] ?? 0);
-      const line = cells.every((index) => rowOf(index) === row)
-        ? ROWS[row]
-        : cells.every((index) => colOf(index) === col)
-          ? COLS[col]
+      const row = rowOf(cells[0] ?? 0, g.size);
+      const col = colOf(cells[0] ?? 0, g.size);
+      const line = cells.every((index) => rowOf(index, g.size) === row)
+        ? g.rows[row]
+        : cells.every((index) => colOf(index, g.size) === col)
+          ? g.cols[col]
           : null;
       if (!line) continue;
       const clearIndexes = clearsOutside(values, cand, box, line, bit);
@@ -671,19 +673,20 @@ export function findClaiming(
   cand: ArrayLike<number>,
   size: 2 | 3,
 ): ClearSpot | null {
-  if (values.length !== CELLS) return null;
+  const g = gridOf(values);
+  if (!g) return null;
   const lines: { cells: readonly number[]; kind: "row" | "col" }[] = [
-    ...ROWS.map((cells) => ({ cells, kind: "row" as const })),
-    ...COLS.map((cells) => ({ cells, kind: "col" as const })),
+    ...g.rows.map((cells) => ({ cells, kind: "row" as const })),
+    ...g.cols.map((cells) => ({ cells, kind: "col" as const })),
   ];
   for (const line of lines) {
-    for (let digit = 1; digit <= 9; digit++) {
+    for (let digit = 1; digit <= g.size; digit++) {
       const bit = 1 << digit;
       const cells = openCells(values, cand, line.cells, bit);
       if (cells.length !== size) continue;
-      const box = boxOf(cells[0] ?? 0);
-      if (!cells.every((index) => boxOf(index) === box)) continue;
-      const clearIndexes = clearsOutside(values, cand, line.cells, BOXES[box] ?? [], bit);
+      const box = boxOf(cells[0] ?? 0, g.size);
+      if (!cells.every((index) => boxOf(index, g.size) === box)) continue;
+      const clearIndexes = clearsOutside(values, cand, line.cells, g.boxes[box] ?? [], bit);
       if (clearIndexes.length === 0) continue;
       return { cells: cells.slice(), digits: [digit], clearIndexes, keep: [digit], unit: line.kind };
     }
@@ -698,20 +701,21 @@ function fishGeometry(
   cover: readonly number[],
   bit: number,
   byRow: boolean,
+  board: number,
 ): { cells: number[]; clearIndexes: number[] } {
   const cells: number[] = [];
   for (const unit of base) {
     for (const cross of cover) {
-      const index = byRow ? unit * N + cross : cross * N + unit;
+      const index = byRow ? unit * board + cross : cross * board + unit;
       if ((values[index] ?? 0) !== 0 || ((cand[index] ?? 0) & bit) === 0) continue;
       cells.push(index);
     }
   }
   const clearIndexes: number[] = [];
-  for (let other = 0; other < N; other++) {
+  for (let other = 0; other < board; other++) {
     if (base.includes(other)) continue;
     for (const cross of cover) {
-      const index = byRow ? other * N + cross : cross * N + other;
+      const index = byRow ? other * board + cross : cross * board + other;
       if ((values[index] ?? 0) !== 0 || ((cand[index] ?? 0) & bit) === 0) continue;
       clearIndexes.push(index);
     }
@@ -721,23 +725,25 @@ function fishGeometry(
 
 /** #13 X-Wing (`size` 2) and #15 Swordfish (`size` 3). `unit` is the base line. */
 export function findFish(values: readonly number[], cand: ArrayLike<number>, size: 2 | 3): ClearSpot | null {
-  if (values.length !== CELLS) return null;
-  for (let digit = 1; digit <= 9; digit++) {
+  const g = gridOf(values);
+  if (!g) return null;
+  const board = g.size;
+  for (let digit = 1; digit <= board; digit++) {
     const bit = 1 << digit;
     const rowCols: number[][] = [];
     const colRows: number[][] = [];
-    for (let row = 0; row < N; row++) {
+    for (let row = 0; row < board; row++) {
       const cols: number[] = [];
-      for (let col = 0; col < N; col++) {
-        const index = row * N + col;
+      for (let col = 0; col < board; col++) {
+        const index = row * board + col;
         if ((values[index] ?? 0) === 0 && ((cand[index] ?? 0) & bit) !== 0) cols.push(col);
       }
       rowCols.push(cols);
     }
-    for (let col = 0; col < N; col++) {
+    for (let col = 0; col < board; col++) {
       const rows: number[] = [];
-      for (let row = 0; row < N; row++) {
-        const index = row * N + col;
+      for (let row = 0; row < board; row++) {
+        const index = row * board + col;
         if ((values[index] ?? 0) === 0 && ((cand[index] ?? 0) & bit) !== 0) rows.push(row);
       }
       colRows.push(rows);
@@ -750,9 +756,9 @@ export function findFish(values: readonly number[], cand: ArrayLike<number>, siz
       const cover = new Set<number>();
       for (const row of rows) for (const col of rowCols[row] ?? []) cover.add(col);
       if (cover.size !== size) continue;
-      const geometry = fishGeometry(values, cand, rows, [...cover].sort((a, b) => a - b), bit, true);
-      if (geometry.clearIndexes.length === 0) continue;
-      return { ...geometry, digits: [digit], keep: [digit], unit: "row" };
+      const hit = fishGeometry(values, cand, rows, [...cover].sort((a, b) => a - b), bit, true, board);
+      if (hit.clearIndexes.length === 0) continue;
+      return { ...hit, digits: [digit], keep: [digit], unit: "row" };
     }
     const usableCols = colRows
       .map((rows, col) => (rows.length >= 2 && rows.length <= size ? col : -1))
@@ -762,9 +768,9 @@ export function findFish(values: readonly number[], cand: ArrayLike<number>, siz
       const cover = new Set<number>();
       for (const col of cols) for (const row of colRows[col] ?? []) cover.add(row);
       if (cover.size !== size) continue;
-      const geometry = fishGeometry(values, cand, cols, [...cover].sort((a, b) => a - b), bit, false);
-      if (geometry.clearIndexes.length === 0) continue;
-      return { ...geometry, digits: [digit], keep: [digit], unit: "col" };
+      const hit = fishGeometry(values, cand, cols, [...cover].sort((a, b) => a - b), bit, false, board);
+      if (hit.clearIndexes.length === 0) continue;
+      return { ...hit, digits: [digit], keep: [digit], unit: "col" };
     }
   }
   return null;
@@ -776,9 +782,10 @@ export function findFish(values: readonly number[], cand: ArrayLike<number>, siz
  * `unit` is unused for the house; the triangle is the three pattern cells.
  */
 export function findYWing(values: readonly number[], cand: ArrayLike<number>): ClearSpot | null {
-  if (values.length !== CELLS) return null;
+  const g = gridOf(values);
+  if (!g) return null;
   const cells: number[] = [];
-  for (let index = 0; index < CELLS; index++) {
+  for (let index = 0; index < g.cellCount; index++) {
     if ((values[index] ?? 0) === 0 && popcount(cand[index] ?? 0) === 2) cells.push(index);
   }
   for (const pivot of cells) {
@@ -786,7 +793,7 @@ export function findYWing(values: readonly number[], cand: ArrayLike<number>): C
     if (pivotDigits.length !== 2) continue;
     const a = pivotDigits[0] ?? 0;
     const b = pivotDigits[1] ?? 0;
-    for (const first of PEERS[pivot] ?? []) {
+    for (const first of g.peers[pivot] ?? []) {
       if ((values[first] ?? 0) !== 0 || popcount(cand[first] ?? 0) !== 2) continue;
       const firstDigits = maskDigits(cand[first] ?? 0);
       const shared = firstDigits.filter((digit) => digit === a || digit === b);
@@ -795,11 +802,11 @@ export function findYWing(values: readonly number[], cand: ArrayLike<number>): C
       if (extra === undefined) continue;
       const other = shared[0] === a ? b : a;
       const wing = (1 << other) | (1 << extra);
-      for (const second of PEERS[pivot] ?? []) {
+      for (const second of g.peers[pivot] ?? []) {
         if (second === first || (values[second] ?? 0) !== 0 || (cand[second] ?? 0) !== wing) continue;
-        const seen = new Set(PEERS[first] ?? []);
+        const seen = new Set(g.peers[first] ?? []);
         const clearIndexes: number[] = [];
-        for (const target of PEERS[second] ?? []) {
+        for (const target of g.peers[second] ?? []) {
           if (target === pivot || target === first || target === second || !seen.has(target)) continue;
           if ((values[target] ?? 0) !== 0 || ((cand[target] ?? 0) & (1 << extra)) === 0) continue;
           clearIndexes.push(target);
@@ -865,7 +872,7 @@ type WalkResult =
 
 function walkSolver(flat: readonly number[], stopAt: AppliedTechnique | null): WalkResult {
   const values = flat.slice();
-  if (flat.length !== CELLS) return { status: "fail", values };
+  if (!gridOf(flat)) return { status: "fail", values };
   if (values.every((value) => value !== 0)) return { status: "done", values, used: new Set() };
   const cand = initCandidates(values);
   if (!cand) return { status: "fail", values };
@@ -929,8 +936,11 @@ export function analyze(flat: readonly number[]): Analysis {
 }
 
 export function flatToRows(flat: readonly number[]): number[][] {
+  const g = geometryFromLength(flat.length);
+  const width = g?.size ?? 9;
+  const height = g ? g.size : 9;
   const rows: number[][] = [];
-  for (let r = 0; r < N; r++) rows.push(flat.slice(r * N, r * N + N));
+  for (let r = 0; r < height; r++) rows.push(flat.slice(r * width, r * width + width));
   return rows;
 }
 
