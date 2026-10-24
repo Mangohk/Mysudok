@@ -228,3 +228,65 @@ test("tools main row is 筆記, 上一步, 提示, ⋯ and the menu is one flat 
     /class="menu-pop" role="menu"><button type="button" data-action="fill-candidates"[^>]*>填滿候選<\/button><button type="button" data-action="check-wrong">檢查錯格<\/button>/,
   );
 });
+
+test("mini boards enlarge type by cell ratio and the 4×4 pad is 2×2", () => {
+  const portrait = css.split("@media")[0] ?? "";
+  assert.match(ruleBody("\\.cell", portrait), /font-size:\s*clamp\(\s*1rem\s*,\s*4\.8vw\s*,\s*1\.55rem\s*\)/);
+  assert.match(ruleBody("\\.cell", portrait), /font-weight:\s*680/);
+  assert.match(ruleBody("\\.cell\\.given", portrait), /font-weight:\s*760/);
+  assert.match(css, /--ink:\s*#241910/);
+  assert.match(css, /--paper:\s*#f7f1e6/);
+
+  const fourBoard = ruleBody(String.raw`\.board\[data-size="4"\]`, portrait);
+  const sixBoard = ruleBody(String.raw`\.board\[data-size="6"\]`, portrait);
+  assert.match(fourBoard, /container-type:\s*inline-size/);
+  assert.match(sixBoard, /container-type:\s*inline-size/);
+  assert.match(
+    ruleBody(String.raw`\.board\[data-size="4"\] \.cell`, portrait),
+    /font-size:\s*clamp\(\s*1\.15rem\s*,\s*12\.5cqw\s*,\s*13\.75cqw\s*\)/,
+  );
+  assert.match(
+    ruleBody(String.raw`\.board\[data-size="6"\] \.cell`, portrait),
+    /font-size:\s*clamp\(\s*1rem\s*,\s*7\.5cqw\s*,\s*8\.33cqw\s*\)/,
+  );
+  assert.match(ruleBody(String.raw`\.board\[data-size="4"\] \.notes`, portrait), /font-size:\s*max\(\s*0\.9rem\s*,\s*0\.46em\s*\)/);
+  assert.match(ruleBody(String.raw`\.board\[data-size="6"\] \.notes`, portrait), /font-size:\s*max\(\s*0\.78rem\s*,\s*0\.5em\s*\)/);
+
+  const pad4 = ruleBody(String.raw`\.pad\[data-size="4"\]`, portrait);
+  assert.match(pad4, /grid-template-columns:\s*repeat\(\s*2\s*,\s*1fr\s*\)/);
+  assert.match(pad4, /grid-template-rows:\s*repeat\(\s*2\s*,\s*minmax\(\s*44pt\s*,\s*auto\s*\)\s*\)/);
+  assert.doesNotMatch(pad4, /repeat\(\s*4/);
+  const spots: Array<[number, number, number]> = [
+    [1, 1, 1],
+    [2, 1, 2],
+    [3, 2, 1],
+    [4, 2, 2],
+  ];
+  for (const [digit, row, col] of spots) {
+    const cell = ruleBody(String.raw`\.pad\[data-size="4"\] button\[data-digit="${digit}"\]`, portrait);
+    assert.match(cell, new RegExp(String.raw`grid-row:\s*${row}\b`));
+    assert.match(cell, new RegExp(String.raw`grid-column:\s*${col}\b`));
+  }
+
+  const wide = css.split("@media").find((block) => {
+    const header = block.slice(0, block.indexOf("{"));
+    return /min-width:\s*700px/.test(header) && !/orientation:\s*landscape/.test(header);
+  });
+  assert.ok(wide);
+  assert.match(ruleBody("\\.cell", wide), /font-size:\s*1\.45rem/);
+
+  const landscape = landscapeRail();
+  assert.match(ruleBody("\\.cell", landscape), /font-size:\s*clamp\(\s*0\.75rem\s*,\s*8cqw\s*,\s*1\.5rem\s*\)/);
+  const railPad4 = ruleBody(String.raw`\.play-rail \.pad\[data-size="4"\]`, landscape);
+  assert.match(railPad4, /grid-template-columns:\s*repeat\(\s*2\s*,\s*minmax\(\s*44pt\s*,\s*1fr\s*\)\s*\)/);
+  assert.match(railPad4, /grid-template-rows:\s*repeat\(\s*2\s*,\s*minmax\(\s*44pt\s*,\s*1fr\s*\)\s*\)/);
+  assert.doesNotMatch(railPad4, /repeat\(\s*3/);
+  for (const [digit, row, col] of spots) {
+    const cell = ruleBody(
+      String.raw`\.play-rail \.pad\[data-size="4"\] button\[data-digit="${digit}"\]`,
+      landscape,
+    );
+    assert.match(cell, new RegExp(String.raw`grid-row:\s*${row}\b`));
+    assert.match(cell, new RegExp(String.raw`grid-column:\s*${col}\b`));
+  }
+});
