@@ -1,11 +1,17 @@
 /** Digit-first board edits. Givens are never written and never undo entries. */
 
+import { geometryFromLength, geometryOf, type Geometry } from "./engine/geometry";
 import {
+  boxOf,
   findLastFreeCell,
   findLastPossibleNumber,
   findLastRemainingCell,
   peersOf,
 } from "./engine/techniques";
+
+function geoOf(values: readonly number[]): Geometry {
+  return geometryFromLength(values.length) ?? geometryOf(9);
+}
 
 export interface CellSnapshot {
   index: number;
@@ -34,7 +40,7 @@ export interface BoardInput {
 export function createBoard(clues: readonly number[], solution: readonly number[]): BoardInput {
   return {
     values: clues.slice(),
-    notes: Array(81).fill(0),
+    notes: Array(clues.length).fill(0),
     clues: clues.slice(),
     givens: clues.map((value) => value !== 0),
     solution: solution.slice(),
@@ -47,7 +53,7 @@ export function createBoard(clues: readonly number[], solution: readonly number[
 
 export function restartBoard(board: BoardInput): void {
   board.values = board.clues.slice();
-  board.notes = Array(81).fill(0);
+  board.notes = Array(board.clues.length).fill(0);
   board.undo = [];
   board.selectedDigit = null;
   board.selectedCell = null;
@@ -55,8 +61,9 @@ export function restartBoard(board: BoardInput): void {
 }
 
 export function conflictMask(values: readonly number[]): boolean[] {
-  const bad = Array<boolean>(81).fill(false);
-  const mark = (cells: number[]) => {
+  const g = geoOf(values);
+  const bad = Array<boolean>(g.cellCount).fill(false);
+  const mark = (cells: readonly number[]) => {
     const where = new Map<number, number[]>();
     for (const index of cells) {
       const value = values[index];
@@ -70,17 +77,9 @@ export function conflictMask(values: readonly number[]): boolean[] {
       for (const index of list) bad[index] = true;
     }
   };
-  for (let row = 0; row < 9; row++) mark(Array.from({ length: 9 }, (_, col) => row * 9 + col));
-  for (let col = 0; col < 9; col++) mark(Array.from({ length: 9 }, (_, row) => row * 9 + col));
-  for (let box = 0; box < 9; box++) {
-    const row0 = Math.floor(box / 3) * 3;
-    const col0 = (box % 3) * 3;
-    const cells: number[] = [];
-    for (let row = 0; row < 3; row++) {
-      for (let col = 0; col < 3; col++) cells.push((row0 + row) * 9 + (col0 + col));
-    }
-    mark(cells);
-  }
+  for (const cells of g.rows) mark(cells);
+  for (const cells of g.cols) mark(cells);
+  for (const cells of g.boxes) mark(cells);
   return bad;
 }
 
@@ -90,9 +89,9 @@ export function digitCount(values: readonly number[], digit: number): number {
   return count;
 }
 
-/** 9 − how many times this digit is filled (givens + player fills). Notes are ignored. */
+/** How many copies of this digit are still missing (givens + player fills). Notes are ignored. */
 export function remainingCount(values: readonly number[], digit: number): number {
-  return 9 - digitCount(values, digit);
+  return geoOf(values).size - digitCount(values, digit);
 }
 
 /**
@@ -101,18 +100,20 @@ export function remainingCount(values: readonly number[], digit: number): number
  * duplicate still returns false.
  */
 export function isDigitDone(board: BoardInput, digit: number): boolean {
+  const g = geoOf(board.values);
   const conflicts = conflictMask(board.values);
   let correct = 0;
   let conflict = false;
-  for (let index = 0; index < 81; index++) {
+  for (let index = 0; index < g.cellCount; index++) {
     if (board.solution[index] === digit && board.values[index] === digit) correct++;
     if (board.values[index] === digit && conflicts[index]) conflict = true;
   }
-  return correct === 9 && !conflict;
+  return correct === g.size && !conflict;
 }
 
 export function armDigit(board: BoardInput, digit: number): void {
-  if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
+  const size = geoOf(board.values).size;
+  if (!Number.isInteger(digit) || digit < 1 || digit > size) return;
   if (isDigitDone(board, digit)) {
     if (board.selectedDigit === digit) board.selectedDigit = null;
     return;
@@ -141,9 +142,10 @@ function pushCell(board: BoardInput, index: number): void {
  * Empty cells and pencil notes are ignored. Givens and player fills both count.
  */
 export function evidencePeers(values: readonly number[], index: number, digit: number): number[] {
-  if (!Number.isInteger(index) || index < 0 || index >= 81) return [];
+  const g = geoOf(values);
+  if (!Number.isInteger(index) || index < 0 || index >= g.cellCount) return [];
   const peers: number[] = [];
-  for (const peer of peersOf(index)) {
+  for (const peer of peersOf(index, g.size)) {
     const value = values[peer] ?? 0;
     if (value !== 0 && value !== digit) peers.push(peer);
   }
@@ -155,24 +157,19 @@ export interface HiddenSingleHouse {
   cells: number[];
 }
 
-function rowCells(index: number): number[] {
-  const row = Math.floor(index / 9);
-  return Array.from({ length: 9 }, (_, col) => row * 9 + col);
+function rowCells(values: readonly number[], index: number): number[] {
+  const g = geoOf(values);
+  return [...(g.rows[Math.floor(index / g.size)] ?? [])];
 }
 
-function colCells(index: number): number[] {
-  const col = index % 9;
-  return Array.from({ length: 9 }, (_, row) => row * 9 + col);
+function colCells(values: readonly number[], index: number): number[] {
+  const g = geoOf(values);
+  return [...(g.cols[index % g.size] ?? [])];
 }
 
-function boxCells(index: number): number[] {
-  const row0 = Math.floor(Math.floor(index / 9) / 3) * 3;
-  const col0 = Math.floor((index % 9) / 3) * 3;
-  const cells: number[] = [];
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) cells.push((row0 + row) * 9 + (col0 + col));
-  }
-  return cells;
+function boxCells(values: readonly number[], index: number): number[] {
+  const g = geoOf(values);
+  return [...(g.boxes[boxOf(index, g.size)] ?? [])];
 }
 
 function cellCanHoldDigit(values: readonly number[], index: number, digit: number): boolean {
@@ -189,13 +186,14 @@ export function hiddenSingleHouse(
   target: number,
   digit: number,
 ): HiddenSingleHouse | null {
-  if (!Number.isInteger(target) || target < 0 || target >= 81) return null;
-  if (!Number.isInteger(digit) || digit < 1 || digit > 9) return null;
+  const g = geoOf(values);
+  if (!Number.isInteger(target) || target < 0 || target >= g.cellCount) return null;
+  if (!Number.isInteger(digit) || digit < 1 || digit > g.size) return null;
   if (!cellCanHoldDigit(values, target, digit)) return null;
   const units: HiddenSingleHouse[] = [
-    { kind: "row", cells: rowCells(target) },
-    { kind: "col", cells: colCells(target) },
-    { kind: "box", cells: boxCells(target) },
+    { kind: "row", cells: rowCells(values, target) },
+    { kind: "col", cells: colCells(values, target) },
+    { kind: "box", cells: boxCells(values, target) },
   ];
   for (const unit of units) {
     const holders = unit.cells.filter((index) => cellCanHoldDigit(values, index, digit));
@@ -246,14 +244,15 @@ export function clearCandidateDigits(
   digits: readonly number[],
 ): boolean {
   let bit = 0;
+  const g = geoOf(board.values);
   for (const digit of digits) {
-    if (digit >= 1 && digit <= 9) bit |= 1 << digit;
+    if (digit >= 1 && digit <= g.size) bit |= 1 << digit;
   }
   if (bit === 0) return false;
   const cells: CellSnapshot[] = [];
   const seen = new Set<number>();
   for (const index of indexes) {
-    if (!Number.isInteger(index) || index < 0 || index >= 81 || seen.has(index)) continue;
+    if (!Number.isInteger(index) || index < 0 || index >= g.cellCount || seen.has(index)) continue;
     seen.add(index);
     if (board.givens[index] || (board.values[index] ?? 0) !== 0) continue;
     if (((board.notes[index] ?? 0) & bit) === 0) continue;
@@ -269,7 +268,7 @@ export function clearCandidateDigits(
 function clearPeerNotes(board: BoardInput, index: number, digit: number): void {
   const bit = 1 << digit;
   const peers: CellSnapshot[] = [];
-  for (const peer of peersOf(index)) {
+  for (const peer of peersOf(index, geoOf(board.values).size)) {
     if (board.givens[peer] || board.values[peer] !== 0) continue;
     if ((board.notes[peer] & bit) === 0) continue;
     peers.push(snapshot(board, peer));
@@ -285,8 +284,9 @@ function clearPeerNotes(board: BoardInput, index: number, digit: number): void {
  * pushes one undo step. Pencil mode does not turn this into a note toggle.
  */
 export function writeDigit(board: BoardInput, index: number, digit: number): boolean {
-  if (!Number.isInteger(index) || index < 0 || index >= 81) return false;
-  if (!Number.isInteger(digit) || digit < 1 || digit > 9) return false;
+  const g = geoOf(board.values);
+  if (!Number.isInteger(index) || index < 0 || index >= g.cellCount) return false;
+  if (!Number.isInteger(digit) || digit < 1 || digit > g.size) return false;
   if (board.givens[index] || (board.values[index] ?? 0) !== 0) return false;
   clearPeerNotes(board, index, digit);
   board.selectedCell = null;
@@ -296,7 +296,7 @@ export function writeDigit(board: BoardInput, index: number, digit: number): boo
 
 /** Tap a cell while a digit may be armed. Givens are ignored. */
 export function tapCell(board: BoardInput, index: number): void {
-  if (!Number.isInteger(index) || index < 0 || index >= 81) return;
+  if (!Number.isInteger(index) || index < 0 || index >= geoOf(board.values).cellCount) return;
   if (board.givens[index]) return;
   const digit = board.selectedDigit;
   if (digit === null || isDigitDone(board, digit)) return;
@@ -340,20 +340,17 @@ export function wrongFillIndexes(board: BoardInput): number[] {
 
 /** Digits not already present in this cell's row, column, or box. Empty cells only. */
 export function legalCandidateMask(values: readonly number[], index: number): number {
-  if (values[index] !== 0) return 0;
+  const g = geoOf(values);
+  if (index < 0 || index >= g.cellCount || values[index] !== 0) return 0;
   const used = new Set<number>();
-  const row = Math.floor(index / 9);
-  const col = index % 9;
-  for (let c = 0; c < 9; c++) used.add(values[row * 9 + c] ?? 0);
-  for (let r = 0; r < 9; r++) used.add(values[r * 9 + col] ?? 0);
-  const boxRow = Math.floor(row / 3) * 3;
-  const boxCol = Math.floor(col / 3) * 3;
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 3; c++) used.add(values[(boxRow + r) * 9 + (boxCol + c)] ?? 0);
-  }
+  const row = Math.floor(index / g.size);
+  const col = index % g.size;
+  for (const cell of g.rows[row] ?? []) used.add(values[cell] ?? 0);
+  for (const cell of g.cols[col] ?? []) used.add(values[cell] ?? 0);
+  for (const cell of g.boxes[boxOf(index, g.size)] ?? []) used.add(values[cell] ?? 0);
   used.delete(0);
   let mask = 0;
-  for (let digit = 1; digit <= 9; digit++) {
+  for (let digit = 1; digit <= g.size; digit++) {
     if (!used.has(digit)) mask |= 1 << digit;
   }
   return mask;

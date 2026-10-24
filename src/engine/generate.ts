@@ -1,4 +1,5 @@
 import { countSolutions, generate as ozGenerate } from "openzeloku";
+import { boardSizeOf, isMiniDifficulty, type Difficulty, type MiniDifficulty } from "./geometry";
 import {
   analyze,
   flatToRows,
@@ -11,6 +12,8 @@ import {
   type AppliedTechnique,
   type TechniqueBand,
 } from "./techniques";
+
+export type { Difficulty } from "./geometry";
 
 /**
  * Technique band for `generate`. Rating is local `analyze`, not openzeloku `rate()`.
@@ -36,8 +39,6 @@ import {
  * fallback: pass `{ maxAttempts }` below {@link MAX_ATTEMPTS}. It never
  * loops past that cap.
  */
-
-export type Difficulty = TechniqueBand;
 
 export interface Puzzle {
   /** 0 = empty. */
@@ -143,7 +144,7 @@ interface Band {
   max: number;
 }
 
-const BAND: Record<Difficulty, Band> = {
+const BAND: Record<TechniqueBand, Band> = {
   初級: { min: 1, max: 3 },
   中級: { min: 5, max: 10 },
   高級: { min: 11, max: 13 },
@@ -262,14 +263,14 @@ async function carve(grid: number[], solution: readonly number[], band: Band): P
   return null;
 }
 
-const SEED: Record<Difficulty, "easy" | "medium" | "hard" | "expert"> = {
+const SEED: Record<TechniqueBand, "easy" | "medium" | "hard" | "expert"> = {
   初級: "easy",
   中級: "medium",
   高級: "expert",
   專家: "expert",
 };
 
-function matchesDifficulty(technique: AppliedTechnique, difficulty: Difficulty): boolean {
+function matchesDifficulty(technique: AppliedTechnique, difficulty: TechniqueBand): boolean {
   if (difficulty === "初級") return isBeginnerTechnique(technique);
   if (difficulty === "中級") return isIntermediateTechnique(technique);
   if (difficulty === "高級") return isAdvancedTechnique(technique);
@@ -278,23 +279,63 @@ function matchesDifficulty(technique: AppliedTechnique, difficulty: Difficulty):
 
 /** True when `technique` is the hardest step this difficulty is allowed to keep. */
 export function acceptsDifficulty(difficulty: Difficulty, technique: AppliedTechnique): boolean {
+  if (isMiniDifficulty(difficulty)) return false;
   return matchesDifficulty(technique, difficulty) && inBand(technique, BAND[difficulty]);
 }
 
-async function tryDifficulty(difficulty: Difficulty, band: Band): Promise<Puzzle | null> {
+async function tryDifficulty(difficulty: TechniqueBand, band: Band): Promise<Puzzle | null> {
   const raw = ozGenerate({ size: 9, difficulty: SEED[difficulty] });
   const counted = countSolutions(raw.grid.slice(), 9, 2);
   if (!counted.unique || !counted.solution) return null;
   return carve(raw.grid.slice(), counted.solution, band);
 }
 
-async function search(difficulty: Difficulty, band: Band, maxAttempts: number): Promise<Puzzle | null> {
+async function search(difficulty: TechniqueBand, band: Band, maxAttempts: number): Promise<Puzzle | null> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const puzzle = await tryDifficulty(difficulty, band);
     if (puzzle && matchesDifficulty(puzzle.maxTechnique as AppliedTechnique, difficulty)) return puzzle;
     await yieldToUi();
   }
   return null;
+}
+
+/**
+ * Live unique-solution puzzle for 4×4 or 6×6.
+ * openzeloku supplies a solved grid at that size. Clues are removed while
+ * `countSolutions` still reports one solution. No technique band and no clue target.
+ */
+function carveMini(size: 4 | 6): Puzzle | null {
+  const raw = ozGenerate({ size });
+  const solution = raw.solution.slice();
+  if (solution.length !== size * size) return null;
+  const grid = solution.slice();
+  for (const index of shuffle(grid.map((_, cell) => cell))) {
+    const backup = grid[index] ?? 0;
+    if (backup === 0) continue;
+    grid[index] = 0;
+    const counted = countSolutions(grid.slice(), size, 2);
+    if (!counted.unique) grid[index] = backup;
+  }
+  if (!grid.some((value) => value === 0)) return null;
+  const counted = countSolutions(grid.slice(), size, 2);
+  if (!counted.unique || !counted.solution || !sameFlat(counted.solution, solution)) return null;
+  return {
+    givens: flatToRows(grid),
+    solution: flatToRows(solution),
+    maxTechnique: "",
+    unique: true,
+  };
+}
+
+async function generateMini(difficulty: MiniDifficulty, maxAttempts: number): Promise<Puzzle> {
+  const size = boardSizeOf(difficulty);
+  if (size !== 4 && size !== 6) throw new GenerationFailedError(difficulty, maxAttempts);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const puzzle = carveMini(size);
+    if (puzzle) return puzzle;
+    await yieldToUi();
+  }
+  throw new GenerationFailedError(difficulty, maxAttempts);
 }
 
 export async function generate(
@@ -304,6 +345,7 @@ export async function generate(
 ): Promise<Puzzle> {
   const maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   await yieldToUi();
+  if (isMiniDifficulty(difficulty)) return generateMini(difficulty, maxAttempts);
   const preferLastPossible = difficulty === "初級" && quota.prefersLastPossible();
   if (preferLastPossible) {
     const exact = await search(difficulty, LAST_POSSIBLE_BAND, maxAttempts);

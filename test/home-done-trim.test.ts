@@ -6,14 +6,17 @@ import { homeHtml, playTopCopyMarkup } from "../src/app.ts";
 const appSource = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
 
-const DIFFICULTIES = ["初級", "中級", "高級", "專家"] as const;
+const DIFFICULTIES = ["4×4", "6×6", "初級", "中級", "高級", "專家"] as const;
 const TECHNIQUE_NAMES = ["Last Free Cell", "Hidden Triples", "Pointing Pairs", "X-Wing", "Y-Wing", "Swordfish"];
 
 test("U1 home has difficulty cards and no technique reference list", () => {
   const html = homeHtml();
   const buttons = [...html.matchAll(/data-action="start" data-difficulty="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(buttons, [...DIFFICULTIES]);
-  assert.equal((html.match(/class="choice /g) ?? []).length, 4);
+  assert.equal((html.match(/class="choice /g) ?? []).length, 6);
+  assert.match(html, /<span class="kicker">4×4<\/span>/);
+  assert.match(html, /<span class="kicker">6×6<\/span>/);
+  assert.match(html, /<span class="kicker">初級<\/span>[\s\S]*<span class="kicker">中級<\/span>[\s\S]*<span class="kicker">高級<\/span>[\s\S]*<span class="kicker">專家<\/span>/);
 
   assert.equal(html.includes("<h2>技巧</h2>"), false);
   assert.equal(html.includes('aria-label="技巧參考"'), false);

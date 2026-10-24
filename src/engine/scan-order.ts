@@ -10,9 +10,7 @@
  * older tests stay put. `analyze` and `findHint` both pass this permutation.
  */
 
-const CELLS = 81;
-
-/** Fisher–Yates over 0…80 from an FNV-1a mix of the givens. */
+/** Fisher–Yates over the board cells from an FNV-1a mix of the givens. */
 export function scanOrderFromPuzzle(givensFlat: readonly number[]): readonly number[] {
   let hash = 2166136261;
   const length = givensFlat.length;
@@ -24,7 +22,8 @@ export function scanOrderFromPuzzle(givensFlat: readonly number[]): readonly num
   hash = Math.imul(hash, 16777619);
 
   let state = hash >>> 0;
-  const order = Array.from({ length: CELLS }, (_, index) => index);
+  const cells = length === 16 || length === 36 || length === 81 ? length : 81;
+  const order = Array.from({ length: cells }, (_, index) => index);
   for (let index = order.length - 1; index > 0; index--) {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
     const swap = state % (index + 1);
@@ -37,16 +36,18 @@ export function scanOrderFromPuzzle(givensFlat: readonly number[]): readonly num
 
 /**
  * Rank of each cell in `order` (0 = visited first).
- * Null when `order` is missing or not a permutation of 0…80.
- * Callers then keep the historical scan.
+ * Null when `order` is missing or not a permutation of the board cells.
+ * Callers then keep the historical scan. 9×9 orders are still 0…80.
  */
 export function scanRanks(order: readonly number[] | undefined): Uint8Array | null {
-  if (!order || order.length !== CELLS) return null;
-  const seen = new Uint8Array(CELLS);
-  const rank = new Uint8Array(CELLS);
-  for (let index = 0; index < CELLS; index++) {
+  if (!order) return null;
+  const cells = order.length;
+  if (cells !== 16 && cells !== 36 && cells !== 81) return null;
+  const seen = new Uint8Array(cells);
+  const rank = new Uint8Array(cells);
+  for (let index = 0; index < cells; index++) {
     const cell = order[index];
-    if (!Number.isInteger(cell) || cell < 0 || cell >= CELLS || seen[cell]) return null;
+    if (!Number.isInteger(cell) || cell < 0 || cell >= cells || seen[cell]) return null;
     seen[cell] = 1;
     rank[cell] = index;
   }

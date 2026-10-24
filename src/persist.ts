@@ -1,5 +1,6 @@
 import type { UndoStep } from "./board-input";
-import type { Difficulty, Puzzle } from "./engine/generate";
+import type { Puzzle } from "./engine/generate";
+import { boardSizeOf, isClassicDifficulty, isMiniDifficulty, type Difficulty } from "./engine/geometry";
 import type { HintAction, HintStepIndex } from "./engine/hint";
 
 /** Single in-progress slot. Distinct from the beginner-quota streak key. */
@@ -7,10 +8,12 @@ export const IN_PROGRESS_KEY = "mysudok.inProgress";
 export const IN_PROGRESS_VERSION = 1;
 export const IN_PROGRESS_DEBOUNCE_MS = 200;
 
-const CELL_COUNT = 81;
-const NOTE_MASK_MAX = (1 << 10) - 1;
 const MAX_UNDO = 5000;
 const MAX_TEXT = 2000;
+
+function noteMaskMax(size: number): number {
+  return (1 << (size + 1)) - 1;
+}
 
 export interface GameSnapshot {
   difficulty: Difficulty;
@@ -75,11 +78,11 @@ function sameNumbers(left: readonly number[], right: readonly number[]): boolean
   return true;
 }
 
-function parseGrid(value: unknown, min: number, max: number): number[][] | null {
-  if (!Array.isArray(value) || value.length !== 9) return null;
+function parseGrid(value: unknown, min: number, max: number, size: number): number[][] | null {
+  if (!Array.isArray(value) || value.length !== size) return null;
   const rows: number[][] = [];
   for (const row of value) {
-    if (!Array.isArray(row) || row.length !== 9) return null;
+    if (!Array.isArray(row) || row.length !== size) return null;
     const cells: number[] = [];
     for (const cell of row) {
       if (!isInt(cell) || cell < min || cell > max) return null;
@@ -90,8 +93,8 @@ function parseGrid(value: unknown, min: number, max: number): number[][] | null 
   return rows;
 }
 
-function parseFlat(value: unknown, min: number, max: number): number[] | null {
-  if (!Array.isArray(value) || value.length !== CELL_COUNT) return null;
+function parseFlat(value: unknown, min: number, max: number, count: number): number[] | null {
+  if (!Array.isArray(value) || value.length !== count) return null;
   const cells: number[] = [];
   for (const cell of value) {
     if (!isInt(cell) || cell < min || cell > max) return null;
@@ -100,21 +103,21 @@ function parseFlat(value: unknown, min: number, max: number): number[] | null {
   return cells;
 }
 
-function parseIndexes(value: unknown, maxLength: number): number[] | null {
+function parseIndexes(value: unknown, maxLength: number, count: number): number[] | null {
   if (!Array.isArray(value) || value.length > maxLength) return null;
   const indexes: number[] = [];
   for (const index of value) {
-    if (!isInt(index) || index < 0 || index >= CELL_COUNT) return null;
+    if (!isInt(index) || index < 0 || index >= count) return null;
     indexes.push(index);
   }
   return indexes;
 }
 
-function parseDigits(value: unknown): number[] | null {
-  if (!Array.isArray(value) || value.length > 9) return null;
+function parseDigits(value: unknown, size: number): number[] | null {
+  if (!Array.isArray(value) || value.length > size) return null;
   const digits: number[] = [];
   for (const digit of value) {
-    if (!isInt(digit) || digit < 1 || digit > 9) return null;
+    if (!isInt(digit) || digit < 1 || digit > size) return null;
     digits.push(digit);
   }
   return digits;
@@ -126,21 +129,21 @@ function parseUnit(value: unknown): "row" | "col" | "box" | null | undefined {
   return undefined;
 }
 
-function parseHintAction(value: unknown): HintAction | null | undefined {
+function parseHintAction(value: unknown, size: number, count: number): HintAction | null | undefined {
   if (value === null) return null;
   if (!isRecord(value)) return undefined;
   if (value.kind === "notes") return { kind: "notes" };
   if (value.kind === "fill") {
-    if (!isInt(value.value) || value.value < 1 || value.value > 9) return undefined;
-    const evidence = parseIndexes(value.evidence, CELL_COUNT);
+    if (!isInt(value.value) || value.value < 1 || value.value > size) return undefined;
+    const evidence = parseIndexes(value.evidence, count, count);
     const unit = parseUnit(value.unit);
     if (!evidence || unit === undefined) return undefined;
     return { kind: "fill", value: value.value, evidence, unit };
   }
   if (value.kind === "clear") {
-    const digits = parseDigits(value.digits);
-    const indexes = parseIndexes(value.indexes, CELL_COUNT);
-    const keep = parseDigits(value.keep);
+    const digits = parseDigits(value.digits, size);
+    const indexes = parseIndexes(value.indexes, count, count);
+    const keep = parseDigits(value.keep, size);
     const unit = parseUnit(value.unit);
     if (!digits || !indexes || !keep || unit === undefined || unit === null) return undefined;
     return { kind: "clear", digits, indexes, keep, unit };
@@ -154,17 +157,18 @@ function parseText(value: unknown): string | null | undefined {
   return value;
 }
 
-function parseUndo(value: unknown): UndoStep[] | null {
+function parseUndo(value: unknown, size: number, count: number): UndoStep[] | null {
+  const noteMax = noteMaskMax(size);
   if (!Array.isArray(value) || value.length > MAX_UNDO) return null;
   const steps: UndoStep[] = [];
   for (const step of value) {
-    if (!isRecord(step) || !Array.isArray(step.cells) || step.cells.length > CELL_COUNT) return null;
+    if (!isRecord(step) || !Array.isArray(step.cells) || step.cells.length > count) return null;
     const cells: UndoStep["cells"] = [];
     for (const cell of step.cells) {
       if (!isRecord(cell)) return null;
-      if (!isInt(cell.index) || cell.index < 0 || cell.index >= CELL_COUNT) return null;
-      if (!isInt(cell.value) || cell.value < 0 || cell.value > 9) return null;
-      if (!isInt(cell.notes) || cell.notes < 0 || cell.notes > NOTE_MASK_MAX) return null;
+      if (!isInt(cell.index) || cell.index < 0 || cell.index >= count) return null;
+      if (!isInt(cell.value) || cell.value < 0 || cell.value > size) return null;
+      if (!isInt(cell.notes) || cell.notes < 0 || cell.notes > noteMax) return null;
       cells.push({ index: cell.index, value: cell.value, notes: cell.notes });
     }
     steps.push({ cells });
@@ -201,7 +205,10 @@ function parsePayload(value: unknown): GameSnapshot | null {
   }
 
   const difficulty = value.difficulty;
-  if (difficulty !== "初級" && difficulty !== "中級" && difficulty !== "高級" && difficulty !== "專家") return null;
+  if (typeof difficulty !== "string" || (!isClassicDifficulty(difficulty) && !isMiniDifficulty(difficulty))) return null;
+  const size = boardSizeOf(difficulty);
+  const cells = size * size;
+  const noteMax = noteMaskMax(size);
 
   let bankId: string | null;
   if (value.bankId === null) bankId = null;
@@ -209,19 +216,20 @@ function parsePayload(value: unknown): GameSnapshot | null {
   else return null;
 
   if (!isRecord(value.puzzle)) return null;
-  const givensGrid = parseGrid(value.puzzle.givens, 0, 9);
-  const solutionGrid = parseGrid(value.puzzle.solution, 1, 9);
+  const givensGrid = parseGrid(value.puzzle.givens, 0, size, size);
+  const solutionGrid = parseGrid(value.puzzle.solution, 1, size, size);
   const maxTechnique = value.puzzle.maxTechnique;
   if (!givensGrid || !solutionGrid) return null;
-  if (typeof maxTechnique !== "string" || maxTechnique.length === 0 || maxTechnique.length > 80) return null;
+  if (typeof maxTechnique !== "string" || maxTechnique.length > 80) return null;
+  if (maxTechnique.length === 0 && !isMiniDifficulty(difficulty)) return null;
   if (value.puzzle.unique !== true) return null;
 
-  const values = parseFlat(value.values, 0, 9);
-  const notes = parseFlat(value.notes, 0, NOTE_MASK_MAX);
-  const clues = parseFlat(value.clues, 0, 9);
-  const solution = parseFlat(value.solution, 1, 9);
+  const values = parseFlat(value.values, 0, size, cells);
+  const notes = parseFlat(value.notes, 0, noteMax, cells);
+  const clues = parseFlat(value.clues, 0, size, cells);
+  const solution = parseFlat(value.solution, 1, size, cells);
   if (!values || !notes || !clues || !solution) return null;
-  if (!Array.isArray(value.givens) || value.givens.length !== CELL_COUNT) return null;
+  if (!Array.isArray(value.givens) || value.givens.length !== cells) return null;
   const givens: boolean[] = [];
   for (const flag of value.givens) {
     if (typeof flag !== "boolean") return null;
@@ -230,24 +238,24 @@ function parsePayload(value: unknown): GameSnapshot | null {
 
   if (!sameNumbers(clues, givensGrid.flat())) return null;
   if (!sameNumbers(solution, solutionGrid.flat())) return null;
-  for (let index = 0; index < CELL_COUNT; index++) {
+  for (let index = 0; index < cells; index++) {
     if (givens[index] !== (clues[index] !== 0)) return null;
     if (givens[index] && values[index] !== clues[index]) return null;
     if (clues[index] !== 0 && clues[index] !== solution[index]) return null;
   }
   if (sameNumbers(values, solution)) return null;
 
-  const undo = parseUndo(value.undo);
+  const undo = parseUndo(value.undo, size, cells);
   if (!undo) return null;
 
   let selectedDigit: number | null;
   if (value.selectedDigit === null) selectedDigit = null;
-  else if (isInt(value.selectedDigit) && value.selectedDigit >= 1 && value.selectedDigit <= 9) selectedDigit = value.selectedDigit;
+  else if (isInt(value.selectedDigit) && value.selectedDigit >= 1 && value.selectedDigit <= size) selectedDigit = value.selectedDigit;
   else return null;
 
   let selectedCell: number | null;
   if (value.selectedCell === null) selectedCell = null;
-  else if (isInt(value.selectedCell) && value.selectedCell >= 0 && value.selectedCell < CELL_COUNT) {
+  else if (isInt(value.selectedCell) && value.selectedCell >= 0 && value.selectedCell < cells) {
     selectedCell = value.selectedCell;
   } else return null;
 
@@ -255,14 +263,14 @@ function parsePayload(value: unknown): GameSnapshot | null {
 
   const hintStep = value.hintStep;
   if (hintStep !== 0 && hintStep !== 1 && hintStep !== 2 && hintStep !== 3 && hintStep !== 4) return null;
-  const hintIndexes = parseIndexes(value.hintIndexes, CELL_COUNT * 2);
+  const hintIndexes = parseIndexes(value.hintIndexes, cells * 2, cells);
   if (!hintIndexes) return null;
   let hintTechnique: string | null;
   if (value.hintTechnique === null) hintTechnique = null;
   else if (typeof value.hintTechnique === "string" && value.hintTechnique.length > 0 && value.hintTechnique.length <= 80) {
     hintTechnique = value.hintTechnique;
   } else return null;
-  const hintAction = parseHintAction(value.hintAction);
+  const hintAction = parseHintAction(value.hintAction, size, cells);
   if (hintAction === undefined) return null;
   const hintNote = parseText(value.hintNote);
   const candidateNote = parseText(value.candidateNote);
@@ -272,7 +280,7 @@ function parsePayload(value: unknown): GameSnapshot | null {
   let wrongMarks: number[] | null;
   if (value.wrongMarks === null) wrongMarks = null;
   else {
-    const marks = parseIndexes(value.wrongMarks, CELL_COUNT);
+    const marks = parseIndexes(value.wrongMarks, cells, cells);
     if (!marks) return null;
     wrongMarks = marks;
   }

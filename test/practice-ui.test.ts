@@ -6,11 +6,11 @@ import { homeHtml, playTopCopyMarkup } from "../src/app.ts";
 const appSource = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8");
 
-test("home stacks four full-width difficulties and has no practice entry", () => {
+test("home stacks mini grids above the four full-width difficulties and has no practice entry", () => {
   const html = homeHtml();
   const buttons = [...html.matchAll(/data-action="start" data-difficulty="([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(buttons, ["初級", "中級", "高級", "專家"]);
-  assert.equal((html.match(/class="choice /g) ?? []).length, 4);
+  assert.deepEqual(buttons, ["4×4", "6×6", "初級", "中級", "高級", "專家"]);
+  assert.equal((html.match(/class="choice /g) ?? []).length, 6);
   assert.equal(html.includes("練習技巧"), false);
   assert.equal(html.includes("練習"), false);
   assert.equal(html.includes('data-action="practice"'), false);
