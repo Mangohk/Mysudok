@@ -10,7 +10,8 @@ import { flatToRows, TECHNIQUE_LABEL, TECHNIQUE_ORDER, type AppliedTechnique } f
  */
 
 export const BANK_FILENAME = "bank-by-hardest.jsonl";
-export const PRACTICE_TARGET = 100;
+/** Rows per open technique in the shipped bank (13 × 400 = 5200). */
+export const PRACTICE_TARGET = 400;
 
 /** Closed for practice. Absent from the picker even if a future bank has rows. */
 export const PRACTICE_CLOSED = ["notes", "obvious_singles"] as const;
