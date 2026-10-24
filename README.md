@@ -95,7 +95,7 @@ Clue count is only a side effect of carving a grid. The accept/reject decision i
 
 ### Expert bank
 
-The static JSONL asset (1300 puzzles) stays on disk and is not a practice mode. The page can fetch it from the Vite `base` (`/Mysudok/`). Runtime does not run Python and does not download puzzles from another origin. `parseBank` / `filterByHardest` / `drawEntry` live in [`src/engine/bank.ts`](src/engine/bank.ts). [`src/engine/expert-deal.ts`](src/engine/expert-deal.ts) keeps the rows whose `hardest` is `y_wing` or `swordfish` (200 puzzles, `band: "expert"`). A bank row becomes the existing `Puzzle` (`givens` and `solution` as `number[][]`, `maxTechnique` = `hardest`, `unique: true`) only after the deal-time morph. The in-play header shows the difficulty name **專家** and the Title Case technique via `techniqueTitle`. Hints still scan #1–#15.
+The static JSONL asset (5200 puzzles) stays on disk and is not a practice mode. The page can fetch it from the Vite `base` (`/Mysudok/`). Runtime does not run Python and does not download puzzles from another origin. `parseBank` / `filterByHardest` / `drawEntry` live in [`src/engine/bank.ts`](src/engine/bank.ts). [`src/engine/expert-deal.ts`](src/engine/expert-deal.ts) keeps the rows whose `hardest` is `y_wing` or `swordfish` (800 puzzles, `band: "expert"`). A bank row becomes the existing `Puzzle` (`givens` and `solution` as `number[][]`, `maxTechnique` = `hardest`, `unique: true`) only after the deal-time morph. The in-play header shows the difficulty name **專家** and the Title Case technique via `techniqueTitle`. Hints still scan #1–#15.
 
 ### Technique map
 

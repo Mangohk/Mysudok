@@ -32,15 +32,15 @@ test("shipped expert pool is only y_wing and swordfish, labeled expert", () => {
   const entries = parseBank(bankText);
   const pool = expertPool(entries);
   assert.deepEqual(EXPERT_HARDEST, ["y_wing", "swordfish"]);
-  assert.equal(pool.length, 200);
+  assert.equal(pool.length, 800);
   const counts = { y_wing: 0, swordfish: 0 };
   for (const entry of pool) {
     assert.ok(entry.hardest === "y_wing" || entry.hardest === "swordfish");
     assert.equal(entry.band, "expert");
     counts[entry.hardest] += 1;
   }
-  assert.equal(counts.y_wing, 100);
-  assert.equal(counts.swordfish, 100);
+  assert.equal(counts.y_wing, 400);
+  assert.equal(counts.swordfish, 400);
   assert.equal(expertPool(entries.filter((entry) => entry.hardest === "x_wing")).length, 0);
 });
 

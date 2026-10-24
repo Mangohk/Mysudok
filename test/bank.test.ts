@@ -104,11 +104,12 @@ test("a new draw prefers a different bank id when the pool has one", () => {
   assert.equal(drawEntry(only, only[0]?.id, () => 0)?.id, "a");
 });
 
-test("the shipped bank is 1300 rows, 100 per open technique, with no stored morph", () => {
-  assert.equal(bankText.trim().split(/\r?\n/).length, 1300);
+test("the shipped bank is 5200 rows, 400 per open technique, with no stored morph", () => {
+  assert.equal(bankText.trim().split(/\r?\n/).length, 5200);
   assert.equal(bankText.includes('"morph"'), false);
   const entries = parseBank(bankText);
-  assert.equal(entries.length, 1300);
+  assert.equal(entries.length, 5200);
+  assert.equal(new Set(entries.map((entry) => entry.givens)).size, entries.length);
   const choices = practiceChoices(entries);
   assert.equal(choices.length, 13);
   for (const choice of choices) {
@@ -156,7 +157,7 @@ test("loadPracticeBank parses the static asset without a second fetch", async ()
   };
   const first = await loadPracticeBank(loader);
   const second = await loadPracticeBank(loader);
-  assert.equal(first.length, 1300);
+  assert.equal(first.length, 5200);
   assert.equal(second, first);
   assert.equal(calls, 1);
   resetPracticeBankCache();
