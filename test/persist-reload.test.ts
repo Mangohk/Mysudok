@@ -279,7 +279,7 @@ test("reload gate is wired to localStorage without disturbing dirty confirms or 
   assert.match(start, /progress\.flush\(\)/);
 
   const leave = appSource.slice(appSource.indexOf("function leavePlay"), appSource.indexOf("function dirty"));
-  assert.equal(leave.includes("progress.clear"), false);
+  assert.match(leave, /progress\.clear\(\)/);
   assert.equal(leave.includes("discardSavedGame"), false);
 
   const restart = appSource.slice(appSource.indexOf('if (action === "restart")'), appSource.indexOf('if (action === "confirm-no")'));
