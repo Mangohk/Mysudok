@@ -50,20 +50,21 @@ The page reads `VITE_COMPLETION_API_URL` when Vite builds (no trailing slash). L
 
 ```bash
 # .env.local
-VITE_COMPLETION_API_URL=https://mysudok-completions.<account>.workers.dev
+VITE_COMPLETION_API_URL=https://mysudok-completions.mangohk.workers.dev
 ```
+
+That origin is the live Worker.
 
 The Worker lives in [`worker/`](worker/). `GET /count` reads the total. `POST /complete` adds one and returns the new total. The KV binding is `COMPLETIONS`. The total is the string key `mysudok:completions:total`. CORS allows `https://mangohk.github.io` and the local Vite origins (`http://localhost:5173` and `http://127.0.0.1:5173`, plus preview on port 4173).
 
-Create the namespace, paste its id into `worker/wrangler.toml` in place of the placeholder, then deploy. Do not commit `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID`. This repo does not deploy the Worker.
+`worker/wrangler.toml` binds `COMPLETIONS` to the live namespace. Do not commit `CLOUDFLARE_API_TOKEN`. This repo does not deploy the Worker.
 
 ```bash
 cd worker
-npx wrangler kv namespace create COMPLETIONS
 npx wrangler deploy
 ```
 
-`wrangler deploy` uses a Cloudflare login, or those two variables in the shell. `npx wrangler dev` from `worker/` simulates KV locally.
+`wrangler deploy` uses a Cloudflare login, or `CLOUDFLARE_API_TOKEN` in the shell. `npx wrangler dev` from `worker/` simulates KV locally.
 
 ## Play
 

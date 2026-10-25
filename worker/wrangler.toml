@@ -2,10 +2,9 @@ name = "mysudok-completions"
 main = "src/index.ts"
 compatibility_date = "2026-10-25"
 workers_dev = true
+account_id = "4f08d3a9623e5f0669ac59485333d6f8"
 
-# Placeholder id. Replace it before `wrangler deploy`:
-#   npx wrangler kv namespace create COMPLETIONS
-# Keep CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID out of this file.
+# Keep CLOUDFLARE_API_TOKEN out of this file.
 [[kv_namespaces]]
 binding = "COMPLETIONS"
-id = "00000000000000000000000000000000"
+id = "a778b1ca6c1341209b69156ad099db8f"
