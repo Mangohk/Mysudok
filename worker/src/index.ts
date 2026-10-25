@@ -89,7 +89,7 @@ async function consumeRate(kv: CompletionKv, kind: "get" | "post", ip: string, n
   const limit = kind === "post" ? POST_LIMIT : GET_LIMIT;
   const bucket = Math.floor(now / 60_000);
   const key = `mysudok:completions:rl:${kind}:${ip}:${bucket}`;
-  const raw = await kv.get(key, { cacheTtl: 0 });
+  const raw = await kv.get(key);
   const used = raw !== null && /^[0-9]+$/.test(raw) ? Number(raw) : 0;
   if (used >= limit) return false;
   await kv.put(key, String(used + 1), { expirationTtl: RATE_TTL_SECONDS });
@@ -97,12 +97,12 @@ async function consumeRate(kv: CompletionKv, kind: "get" | "post", ip: string, n
 }
 
 async function readTotal(kv: CompletionKv): Promise<number> {
-  return parseTotal(await kv.get(TOTAL_KEY, { cacheTtl: 0 }));
+  return parseTotal(await kv.get(TOTAL_KEY));
 }
 
 async function completeOnce(kv: CompletionKv, key: string | null): Promise<number> {
   if (key) {
-    const seen = await kv.get(`${IDEMP_PREFIX}${key}`, { cacheTtl: 0 });
+    const seen = await kv.get(`${IDEMP_PREFIX}${key}`);
     if (seen !== null) return readTotal(kv);
   }
   const current = await readTotal(kv);

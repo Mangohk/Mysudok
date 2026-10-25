@@ -63,7 +63,8 @@ test("GET /count is zero when the total key is missing", async () => {
   assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
   assert.deepEqual(await readJson(response), { count: 0 });
   assert.equal(kv.rows.has(TOTAL_KEY), false);
-  assert.equal(kv.reads.some((read) => read.key === TOTAL_KEY && read.cacheTtl === 0), true);
+  assert.equal(kv.reads.some((read) => read.key === TOTAL_KEY && read.cacheTtl === undefined), true);
+  assert.equal(kv.reads.every((read) => read.cacheTtl === undefined), true);
 });
 
 test("POST /complete increments one shared total and replays an idempotency key", async () => {
