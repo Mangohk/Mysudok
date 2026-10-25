@@ -391,6 +391,7 @@ function redraw(play: Play): void {
 
 function leavePlay(): void {
   requestId++;
+  progress.clear();
   phase = { kind: "home" };
   render();
 }
