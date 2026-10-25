@@ -37,6 +37,9 @@ jobs:
         run: npm test
 
       - name: Build
+        env:
+          # Public Worker origin. Empty keeps the home line on 「已完成 — 局」 and sends no request.
+          VITE_COMPLETION_API_URL: ${{ vars.VITE_COMPLETION_API_URL }}
         run: npm run build
 
       - name: Check Pages asset paths

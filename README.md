@@ -1,6 +1,6 @@
 # Mysudok
 
-A small static Sudoku game. Pick **初級**, **中級**, **高級**, or **專家**, then fill a 9×9 puzzle. There is no account, no saved progress, and no backend.
+A small static Sudoku game. Pick **初級**, **中級**, **高級**, or **專家**, then fill a 9×9 puzzle. There is no account. An unfinished game stays in this browser. A finished game can add one to a shared completion count.
 
 Difficulty is the hardest solving technique a human-style solver has to use, after the puzzle is checked for a unique solution. It is not the number of clues.
 
@@ -41,6 +41,29 @@ npm run preview
 ```
 
 `npm run build` typechecks and writes the static site to `dist/`. Preview it at [http://localhost:4173/Mysudok/](http://localhost:4173/Mysudok/).
+
+## Completion count
+
+Home shows one line, **已完成 N 局**, under the six difficulty buttons and above the openzeloku credit. 4×4, 6×6, 初級, 中級, 高級, and 專家 share that total. If the count cannot be read, the same line says **已完成 — 局**. Solving, leaving, and starting another puzzle still work.
+
+The page reads `VITE_COMPLETION_API_URL` when Vite builds (no trailing slash). Leave it unset or empty to skip the network: nothing is requested, and the line stays on **已完成 — 局**. For local dev, put the public Worker origin in `.env.local`. For GitHub Pages, set the repository variable `VITE_COMPLETION_API_URL`. The build does not embed a Cloudflare API token.
+
+```bash
+# .env.local
+VITE_COMPLETION_API_URL=https://mysudok-completions.<account>.workers.dev
+```
+
+The Worker lives in [`worker/`](worker/). `GET /count` reads the total. `POST /complete` adds one and returns the new total. The KV binding is `COMPLETIONS`. The total is the string key `mysudok:completions:total`. CORS allows `https://mangohk.github.io` and the local Vite origins (`http://localhost:5173` and `http://127.0.0.1:5173`, plus preview on port 4173).
+
+Create the namespace, paste its id into `worker/wrangler.toml` in place of the placeholder, then deploy. Do not commit `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID`. This repo does not deploy the Worker.
+
+```bash
+cd worker
+npx wrangler kv namespace create COMPLETIONS
+npx wrangler deploy
+```
+
+`wrangler deploy` uses a Cloudflare login, or those two variables in the shell. `npx wrangler dev` from `worker/` simulates KV locally.
 
 ## Play
 
@@ -137,4 +160,4 @@ Puzzle engine: [openzeloku](https://github.com/mr-girff/openzeloku) by Zeloku, M
 
 ## Out of scope
 
-Accounts, saved progress, skill trees, exams, and any server.
+Accounts, saved progress, skill trees, exams, and a backend other than the shared completion counter.
