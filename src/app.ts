@@ -29,6 +29,13 @@ import {
 } from "./engine/hint";
 import { applyDealMorph } from "./engine/morph";
 import {
+  completionApiBase,
+  completionCountLine,
+  loadHomeCompletionCount,
+  publishCompletion,
+  takeCompletionPost,
+} from "./completion-api";
+import {
   IN_PROGRESS_DEBOUNCE_MS,
   createProgressWriter,
   readInProgress,
@@ -59,6 +66,10 @@ export interface Play extends BoardInput {
   menuOpen: boolean;
   complete: boolean;
   confirm: null | "new" | "back" | "restart" | "check";
+  /** This deal only. Not written into the in-progress save. */
+  playId: string;
+  /** Set when this deal has already queued POST /complete. */
+  completionPosted: boolean;
 }
 
 const appRoot = { el: null as HTMLElement | null };
@@ -189,7 +200,13 @@ function freshPlay(difficulty: Difficulty, puzzle: Puzzle, bankId: string | null
     menuOpen: false,
     complete: false,
     confirm: null,
+    playId: newPlayId(),
+    completionPosted: false,
   };
+}
+
+function newPlayId(): string {
+  return crypto.randomUUID();
 }
 
 function copyHintAction(action: HintAction | null): HintAction | null {
@@ -240,8 +257,16 @@ export function snapshotFromPlay(play: Play): GameSnapshot {
 }
 
 export function playFromSnapshot(snapshot: GameSnapshot): Play {
-  const copied = snapshotFromPlay({ ...snapshot, menuOpen: false, complete: false, confirm: null });
-  return { ...copied, menuOpen: false, complete: false, confirm: null };
+  const playId = newPlayId();
+  const copied = snapshotFromPlay({
+    ...snapshot,
+    menuOpen: false,
+    complete: false,
+    confirm: null,
+    playId,
+    completionPosted: false,
+  });
+  return { ...copied, menuOpen: false, complete: false, confirm: null, playId, completionPosted: false };
 }
 
 export function phaseFromStorage(storage: ProgressStorage | null): Phase {
@@ -301,7 +326,7 @@ function clearWrong(play: Play): void {
   play.checkNote = null;
 }
 
-function applyRestart(play: Play): void {
+export function applyRestart(play: Play): void {
   restartBoard(play);
   play.complete = false;
   play.menuOpen = false;
@@ -310,13 +335,20 @@ function applyRestart(play: Play): void {
   clearWrong(play);
 }
 
-function syncComplete(play: Play): void {
+function publishPlayCompletion(playId: string): void {
+  void publishCompletion(completionApiBase(), playId);
+}
+
+export function syncComplete(play: Play, publish: (playId: string) => void = publishPlayCompletion): void {
+  const wasComplete = play.complete;
   const solution = play.solution;
   play.complete = play.values.every((value, index) => value === solution[index]);
   if (play.complete || (play.selectedDigit !== null && isDigitDone(play, play.selectedDigit))) {
     play.selectedDigit = null;
     play.selectedCell = null;
   }
+  const job = takeCompletionPost(play, wasComplete);
+  if (job) publish(job.playId);
 }
 
 async function loadBankEntries(): Promise<BankEntry[] | null> {
@@ -839,7 +871,7 @@ function helpText(size: number): string {
   return `1–${size} 選定數字，再點空格填入。再點同一數字可取消。N 筆記 · Z 上一步 · H 提示`;
 }
 
-export function homeHtml(): string {
+export function homeHtml(count: number | null = null): string {
   return `<section class="home">
     <header class="mast">
       <p class="brand">Mysudok</p>
@@ -872,6 +904,7 @@ export function homeHtml(): string {
         <span class="blurb">${esc(HOME_BLURB.專家)}</span>
       </button>
     </div>
+    <p class="completion-count" data-completion-count>${esc(completionCountLine(count))}</p>
     <p class="credit">題目引擎 <a href="https://github.com/mr-girff/openzeloku">openzeloku</a>（MIT）</p>
   </section>`;
 }
@@ -896,6 +929,17 @@ function errorHtml(message: string): string {
   </section>`;
 }
 
+let homeCompletionTicket = 0;
+
+export function beginHomeCompletionLoad(): number {
+  homeCompletionTicket += 1;
+  return homeCompletionTicket;
+}
+
+export function homeCompletionLoadIsCurrent(ticket: number, phaseKind: Phase["kind"]): boolean {
+  return ticket === homeCompletionTicket && phaseKind === "home";
+}
+
 function render(): void {
   const root = appRoot.el;
   if (!root) return;
@@ -914,5 +958,13 @@ function render(): void {
   }
   if (phase.kind === "play" && phase.play.complete) {
     root.querySelector(".done")?.scrollIntoView({ block: "nearest" });
+  }
+  if (phase.kind === "home") {
+    const ticket = beginHomeCompletionLoad();
+    void loadHomeCompletionCount(completionApiBase()).then((count) => {
+      if (!homeCompletionLoadIsCurrent(ticket, phase.kind)) return;
+      const line = root.querySelector("[data-completion-count]");
+      if (line) line.textContent = completionCountLine(count);
+    });
   }
 }

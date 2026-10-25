@@ -1,0 +1,10 @@
+name = "mysudok-completions"
+main = "src/index.ts"
+compatibility_date = "2026-10-25"
+workers_dev = true
+account_id = "4f08d3a9623e5f0669ac59485333d6f8"
+
+# Keep CLOUDFLARE_API_TOKEN out of this file.
+[[kv_namespaces]]
+binding = "COMPLETIONS"
+id = "a778b1ca6c1341209b69156ad099db8f"

@@ -68,7 +68,7 @@ button { cursor: pointer; touch-action: manipulation; }
   line-height: 0.95;
 }
 
-.lede, .loading p, .error p, .credit, .help, .status, .blurb {
+.lede, .loading p, .error p, .credit, .completion-count, .help, .status, .blurb {
   margin: 0;
   line-height: 1.45;
 }
@@ -113,7 +113,12 @@ button { cursor: pointer; touch-action: manipulation; }
   line-height: 1.1;
 }
 
-.credit { margin-top: 1.75rem; color: var(--muted); font-size: 0.85rem; }
+.completion-count {
+  margin-top: 1.15rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.credit { margin-top: 0.4rem; color: var(--muted); font-size: 0.85rem; }
 .credit a { color: inherit; }
 
 .loading, .error {
